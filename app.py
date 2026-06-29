@@ -305,11 +305,11 @@ async def check_card(session, card, site, proxy_raw):
         }
 
 
-async def check_cards_batch(cards, sites, proxies, concurrency=5000):
+async def check_cards_batch(cards, sites, proxies, concurrency=1000):
     semaphore = asyncio.Semaphore(concurrency)
     results = []
 
-    connector = aiohttp.TCPConnector(limit=0, limit_per_host=0, ttl_dns_cache=300, use_dns_cache=True)
+    connector = aiohttp.TCPConnector(limit=1000, limit_per_host=100, ttl_dns_cache=300, use_dns_cache=True)
 
     async def check_one(card, session):
         async with semaphore:
@@ -346,7 +346,7 @@ def api_check():
     sites = get_sites()
     proxies = get_proxies()
 
-    concurrency = 5000 if mode == 'msac' else 5000
+    concurrency = 1000
 
     loop = asyncio.new_event_loop()
     try:
@@ -386,7 +386,7 @@ def api_check_upload():
     sites = get_sites()
     proxies = get_proxies()
 
-    concurrency = 5000 if mode == 'msac' else 5000
+    concurrency = 1000
 
     loop = asyncio.new_event_loop()
     try:
