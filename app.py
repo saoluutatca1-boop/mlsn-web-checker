@@ -32,6 +32,9 @@ DEFAULT_SHOPIFY_SITES = [
     "https://davids-toothpaste.myshopify.com"
 ]
 
+USER_SITES = []
+USER_PROXIES = []
+
 RECENT_SITES = deque(maxlen=50)
 RECENT_PROXIES = deque(maxlen=50)
 
@@ -94,6 +97,8 @@ def release_db(conn):
 
 
 def get_sites():
+    if USER_SITES:
+        return USER_SITES[:]
     conn = get_db()
     if not conn:
         return DEFAULT_SHOPIFY_SITES.copy()
@@ -110,6 +115,8 @@ def get_sites():
 
 
 def get_proxies():
+    if USER_PROXIES:
+        return USER_PROXIES[:]
     conn = get_db()
     if not conn:
         return []
@@ -408,6 +415,52 @@ def api_stats():
         'proxies_count': len(proxies),
         'api_url': SAC_API
     })
+
+
+@app.route('/api/sites/upload', methods=['POST'])
+def api_upload_sites():
+    global USER_SITES
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': 'No file selected'}), 400
+    content = file.read().decode('utf-8', errors='ignore')
+    lines = [l.strip() for l in content.split('\n') if l.strip()]
+    if not lines:
+        return jsonify({'error': 'Empty file'}), 400
+    USER_SITES = list(dict.fromkeys(lines))
+    return jsonify({'loaded': len(USER_SITES), 'source': 'file'})
+
+
+@app.route('/api/proxies/upload', methods=['POST'])
+def api_upload_proxies():
+    global USER_PROXIES
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': 'No file selected'}), 400
+    content = file.read().decode('utf-8', errors='ignore')
+    lines = [l.strip() for l in content.split('\n') if l.strip()]
+    if not lines:
+        return jsonify({'error': 'Empty file'}), 400
+    USER_PROXIES = list(dict.fromkeys(lines))
+    return jsonify({'loaded': len(USER_PROXIES), 'source': 'file'})
+
+
+@app.route('/api/sites/clear', methods=['POST'])
+def api_clear_sites():
+    global USER_SITES
+    USER_SITES = []
+    return jsonify({'cleared': True})
+
+
+@app.route('/api/proxies/clear', methods=['POST'])
+def api_clear_proxies():
+    global USER_PROXIES
+    USER_PROXIES = []
+    return jsonify({'cleared': True})
 
 
 if __name__ == '__main__':

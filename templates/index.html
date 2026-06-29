@@ -653,14 +653,28 @@
             <div class="pool-grid">
                 <div class="panel">
                     <div class="panel-title">
-                        <span class="icon">🌐</span> Sites Pool (from Admin DB)
+                        <span class="icon">🌐</span> Sites Pool
+                    </div>
+                    <div style="display:flex;gap:8px;margin-bottom:10px;">
+                        <label class="btn-sm" style="cursor:pointer;">
+                            Upload .txt
+                            <input type="file" id="siteFile" accept=".txt,.csv" style="display:none" onchange="uploadSites(this.files[0])">
+                        </label>
+                        <button class="btn-sm danger" onclick="clearSites()">Clear</button>
                     </div>
                     <div class="pool-list" id="sitesList" style="max-height:200px;overflow-y:auto;"></div>
                 </div>
 
                 <div class="panel">
                     <div class="panel-title">
-                        <span class="icon">🔒</span> Proxies Pool (from Admin DB)
+                        <span class="icon">🔒</span> Proxies Pool
+                    </div>
+                    <div style="display:flex;gap:8px;margin-bottom:10px;">
+                        <label class="btn-sm" style="cursor:pointer;">
+                            Upload .txt
+                            <input type="file" id="proxyFile" accept=".txt,.csv" style="display:none" onchange="uploadProxies(this.files[0])">
+                        </label>
+                        <button class="btn-sm danger" onclick="clearProxies()">Clear</button>
                     </div>
                     <div class="pool-list" id="proxiesList" style="max-height:200px;overflow-y:auto;"></div>
                 </div>
@@ -699,7 +713,8 @@
             try {
                 const resp = await fetch('/api/stats');
                 const data = await resp.json();
-                document.getElementById('sitesList').innerHTML = `<div class="empty-state">${data.sites_count} sites loaded from Admin DB</div>`;
+                const source = data.sites_count > 5 ? 'loaded' : 'default';
+                document.getElementById('sitesList').innerHTML = `<div class="empty-state">${data.sites_count} sites ${source === 'loaded' ? '(from file)' : '(defaults)'}</div>`;
             } catch (e) {}
         }
 
@@ -707,8 +722,51 @@
             try {
                 const resp = await fetch('/api/stats');
                 const data = await resp.json();
-                document.getElementById('proxiesList').innerHTML = `<div class="empty-state">${data.proxies_count} proxies loaded from Admin DB</div>`;
+                const source = data.proxies_count > 0 ? 'loaded' : 'none';
+                document.getElementById('proxiesList').innerHTML = `<div class="empty-state">${data.proxies_count} proxies ${source === 'loaded' ? '(from file)' : '(none)'}</div>`;
             } catch (e) {}
+        }
+
+        async function uploadSites(file) {
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const resp = await fetch('/api/sites/upload', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.error) { showNotification(data.error, true); return; }
+                showNotification(`Loaded ${data.loaded} sites from ${file.name}`);
+                loadSites();
+                loadStats();
+            } catch (e) { showNotification('Upload failed', true); }
+        }
+
+        async function uploadProxies(file) {
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const resp = await fetch('/api/proxies/upload', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.error) { showNotification(data.error, true); return; }
+                showNotification(`Loaded ${data.loaded} proxies from ${file.name}`);
+                loadProxies();
+                loadStats();
+            } catch (e) { showNotification('Upload failed', true); }
+        }
+
+        async function clearSites() {
+            await fetch('/api/sites/clear', { method: 'POST' });
+            showNotification('Sites cleared');
+            loadSites();
+            loadStats();
+        }
+
+        async function clearProxies() {
+            await fetch('/api/proxies/clear', { method: 'POST' });
+            showNotification('Proxies cleared');
+            loadProxies();
+            loadStats();
         }
 
         async function startCheck() {
