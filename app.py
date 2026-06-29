@@ -64,7 +64,10 @@ SHOPIFY_WEB_ERROR_KEYWORDS = [
     'web_error', 'shopify_web_error', 'site_error', 'gateway_error',
     'bad_request', 'server_error', 'internal_error', 'temporarily_unavailable',
     'maintenance', 'under_construction', 'try_again_later',
-    'shopify店铺错误', '店铺维护中',
+    'detected_http', 'detected_bot', 'bot_detected', 'captcha',
+    'cloudflare', 'challenge_platform', 'cf_chl', 'js_challenge',
+    'access_denied', 'forbidden', 'rate_limit', 'too_many_requests',
+    'blocked', 'waf', 'firewall',
 ]
 
 SHOPIFY_3DS_KEYWORDS = [
@@ -251,7 +254,7 @@ def classify_response(api_response):
             return "LIVE", "✅"
     if any(k in raw for k in SHOPIFY_WEB_ERROR_KEYWORDS):
         return "ERROR", "⚠️"
-    if any(k in raw for k in ["declined", "dead", "invalid", "failed", "rejected", "blocked", "card declined", "card_declined", "generic decline", "generic_decline"]):
+    if any(k in raw for k in ["declined", "dead", "invalid", "failed", "rejected", "card declined", "card_declined", "generic decline", "generic_decline"]):
         return "DEAD", "❌"
     if "error" in raw:
         return "ERROR", "⚠️"
