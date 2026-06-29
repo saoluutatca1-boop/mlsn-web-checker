@@ -24,6 +24,14 @@ DB_POOL = None
 DB_POOL_MIN = 2
 DB_POOL_MAX = 20
 
+DEFAULT_SHOPIFY_SITES = [
+    "https://reston-lloyd.myshopify.com",
+    "https://favorstoday.com",
+    "https://happyhentreats.com",
+    "https://shop.yorkspacesystems.com",
+    "https://davids-toothpaste.myshopify.com"
+]
+
 RECENT_SITES = deque(maxlen=50)
 RECENT_PROXIES = deque(maxlen=50)
 
@@ -88,14 +96,15 @@ def release_db(conn):
 def get_sites():
     conn = get_db()
     if not conn:
-        return []
+        return DEFAULT_SHOPIFY_SITES.copy()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT DISTINCT url FROM sites ORDER BY url")
-            return [row[0] for row in cur.fetchall() if row[0]]
+            sites = [row[0] for row in cur.fetchall() if row[0]]
+            return sites if sites else DEFAULT_SHOPIFY_SITES.copy()
     except Exception as e:
         print(f"Error getting sites: {e}")
-        return []
+        return DEFAULT_SHOPIFY_SITES.copy()
     finally:
         release_db(conn)
 
