@@ -64,10 +64,10 @@ SHOPIFY_WEB_ERROR_KEYWORDS = [
     'web_error', 'shopify_web_error', 'site_error', 'gateway_error',
     'bad_request', 'server_error', 'internal_error', 'temporarily_unavailable',
     'maintenance', 'under_construction', 'try_again_later',
-    'detected_http', 'detected_bot', 'bot_detected', 'captcha',
+    'detected_http', 'detected_http_', 'detected_bot', 'bot_detected', 'captcha',
     'cloudflare', 'challenge_platform', 'cf_chl', 'js_challenge',
     'access_denied', 'forbidden', 'rate_limit', 'too_many_requests',
-    'blocked', 'waf', 'firewall',
+    'waf', 'firewall',
 ]
 
 SHOPIFY_3DS_KEYWORDS = [
