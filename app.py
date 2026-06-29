@@ -911,6 +911,114 @@ def api_admin_delete_proxy():
     return jsonify({'success': True})
 
 
+def db_clear_sites():
+    conn = get_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("TRUNCATE TABLE sites")
+                conn.commit()
+        except:
+            pass
+        finally:
+            release_db(conn)
+
+
+def db_clear_proxies():
+    conn = get_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("TRUNCATE TABLE proxies")
+                conn.commit()
+        except:
+            pass
+        finally:
+            release_db(conn)
+
+
+@app.route('/api/admin/site/upload', methods=['POST'])
+def api_admin_upload_sites():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': 'No file selected'}), 400
+
+    content = file.read().decode('utf-8', errors='ignore')
+    lines = [l.strip() for l in content.split('\n') if l.strip()]
+    if not lines:
+        return jsonify({'error': 'Empty file'}), 400
+
+    file_sites = _load_file(SITES_FILE)
+    loaded_count = 0
+
+    for url in lines:
+        url = url.strip()
+        if url:
+            if url not in file_sites:
+                file_sites.append(url)
+            db_add_site(url)
+            loaded_count += 1
+
+    _save_file(SITES_FILE, file_sites)
+
+    global DB_SITES_CACHE
+    DB_SITES_CACHE = None
+
+    return jsonify({'success': True, 'loaded': loaded_count})
+
+
+@app.route('/api/admin/site/clear', methods=['POST'])
+def api_admin_clear_sites():
+    _save_file(SITES_FILE, [])
+    db_clear_sites()
+    global DB_SITES_CACHE
+    DB_SITES_CACHE = None
+    return jsonify({'success': True})
+
+
+@app.route('/api/admin/proxy/upload', methods=['POST'])
+def api_admin_upload_proxies():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': 'No file selected'}), 400
+
+    content = file.read().decode('utf-8', errors='ignore')
+    lines = [l.strip() for l in content.split('\n') if l.strip()]
+    if not lines:
+        return jsonify({'error': 'Empty file'}), 400
+
+    file_proxies = _load_file(PROXIES_FILE)
+    loaded_count = 0
+
+    for proxy in lines:
+        proxy = proxy.strip()
+        if proxy:
+            if proxy not in file_proxies:
+                file_proxies.append(proxy)
+            db_add_proxy(proxy)
+            loaded_count += 1
+
+    _save_file(PROXIES_FILE, file_proxies)
+
+    global DB_PROXIES_CACHE
+    DB_PROXIES_CACHE = None
+
+    return jsonify({'success': True, 'loaded': loaded_count})
+
+
+@app.route('/api/admin/proxy/clear', methods=['POST'])
+def api_admin_clear_proxies():
+    _save_file(PROXIES_FILE, [])
+    db_clear_proxies()
+    global DB_PROXIES_CACHE
+    DB_PROXIES_CACHE = None
+    return jsonify({'success': True})
+
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 8000))
     app.run(host='0.0.0.0', port=port, debug=True)

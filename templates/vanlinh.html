@@ -457,10 +457,18 @@
                 <div class="manager-title">
                     <span>&gt;_</span> GLOBAL SITES POOL
                 </div>
+                <button class="btn-delete" onclick="wipeSitesPool()" style="border-color: rgba(255, 62, 108, 0.4);"><i class="fa-solid fa-trash-can"></i> WIPE POOL</button>
             </div>
-            <div class="add-form">
-                <input type="text" id="add-site-url" placeholder="https://new-shopify-store.com">
-                <button class="btn" onclick="addSite()"><i class="fa-solid fa-plus"></i> ADD SITE</button>
+            <div class="add-form" style="gap: 8px; flex-wrap: wrap;">
+                <input type="text" id="add-site-url" placeholder="https://new-shopify-store.com" style="flex: 2;">
+                <button class="btn" onclick="addSite()"><i class="fa-solid fa-plus"></i> ADD</button>
+                <label class="btn" style="background-color: transparent; border: 1px solid var(--accent-cyan); color: var(--accent-cyan); cursor: pointer;">
+                    <i class="fa-solid fa-file-import"></i> BULK UPLOAD
+                    <input type="file" id="bulk-upload-sites" accept=".txt,.csv" style="display:none" onchange="bulkUploadSites(this.files[0])">
+                </label>
+            </div>
+            <div class="add-form" style="background-color: rgba(5, 7, 10, 0.1); border-bottom: 1px solid var(--border-color); padding: 8px 20px;">
+                <input type="text" id="search-sites" placeholder="Search sites... (type at least 2 chars to filter)" oninput="filterSitesList()" style="width: 100%;">
             </div>
             <div class="items-list" id="sites-list">
                 <div class="empty-list">Loading global site pool...</div>
@@ -473,10 +481,15 @@
                 <div class="manager-title">
                     <span>&gt;_</span> GLOBAL PROXIES POOL <span>(BACKUP STORE)</span>
                 </div>
+                <button class="btn-delete" onclick="wipeProxiesPool()" style="border-color: rgba(255, 62, 108, 0.4);"><i class="fa-solid fa-trash-can"></i> WIPE POOL</button>
             </div>
-            <div class="add-form">
-                <input type="text" id="add-proxy-val" placeholder="ip:port:user:pass or host:port">
-                <button class="btn" onclick="addProxy()"><i class="fa-solid fa-plus"></i> ADD PROXY</button>
+            <div class="add-form" style="gap: 8px; flex-wrap: wrap;">
+                <input type="text" id="add-proxy-val" placeholder="ip:port:user:pass or host:port" style="flex: 2;">
+                <button class="btn" onclick="addProxy()"><i class="fa-solid fa-plus"></i> ADD</button>
+                <label class="btn" style="background-color: transparent; border: 1px solid var(--accent-cyan); color: var(--accent-cyan); cursor: pointer;">
+                    <i class="fa-solid fa-file-import"></i> BULK UPLOAD
+                    <input type="file" id="bulk-upload-proxies" accept=".txt,.csv" style="display:none" onchange="bulkUploadProxies(this.files[0])">
+                </label>
             </div>
             <div class="items-list" id="proxies-list">
                 <div class="empty-list">Loading global proxy pool...</div>
@@ -526,17 +539,28 @@ async function loadDbInfo() {
 
 function renderSites() {
     const listEl = document.getElementById('sites-list');
-    if (sites.length === 0) {
-        listEl.innerHTML = '<div class="empty-list">No active global sites configured. Default fallback is active.</div>';
+    const searchVal = document.getElementById('search-sites') ? document.getElementById('search-sites').value.trim().toLowerCase() : '';
+    
+    let filteredSites = sites;
+    if (searchVal.length >= 2) {
+        filteredSites = sites.filter(site => site.toLowerCase().includes(searchVal));
+    }
+    
+    if (filteredSites.length === 0) {
+        listEl.innerHTML = '<div class="empty-list">No matching active sites found in database.</div>';
         return;
     }
 
-    listEl.innerHTML = sites.map(site => `
+    listEl.innerHTML = filteredSites.map(site => `
         <div class="item-row">
             <span class="item-text">${esc(site)}</span>
             <button class="btn-delete" onclick="deleteSite('${esc(site)}')">[DELETE]</button>
         </div>
     `).join('');
+}
+
+function filterSitesList() {
+    renderSites();
 }
 
 function renderProxies() {
@@ -647,6 +671,80 @@ async function deleteProxy(proxy) {
         }
     } catch (e) {
         noti('Error deleting global proxy', 1);
+    }
+}
+
+async function bulkUploadSites(file) {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const response = await fetch('/api/admin/site/upload', {
+            method: 'POST',
+            body: fd
+        });
+        const data = await response.json();
+        if (data.error) {
+            noti(data.error.toUpperCase(), 1);
+        } else {
+            noti(`BULK UPLOADED ${data.loaded} SITES`);
+            loadDbInfo();
+        }
+    } catch(e) {
+        noti('Bulk upload failed', 1);
+    }
+}
+
+async function wipeSitesPool() {
+    if (!confirm('CRITICAL WARNING: Are you sure you want to delete ALL global sites? Active users will have no sites left to check on.')) return;
+    try {
+        const response = await fetch('/api/admin/site/clear', { method: 'POST' });
+        const data = await response.json();
+        if (data.error) {
+            noti(data.error.toUpperCase(), 1);
+        } else {
+            noti('GLOBAL SITE POOL WIPED');
+            loadDbInfo();
+        }
+    } catch (e) {
+        noti('Failed to wipe site pool', 1);
+    }
+}
+
+async function bulkUploadProxies(file) {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const response = await fetch('/api/admin/proxy/upload', {
+            method: 'POST',
+            body: fd
+        });
+        const data = await response.json();
+        if (data.error) {
+            noti(data.error.toUpperCase(), 1);
+        } else {
+            noti(`BULK UPLOADED ${data.loaded} PROXIES`);
+            loadDbInfo();
+        }
+    } catch(e) {
+        noti('Bulk upload failed', 1);
+    }
+}
+
+async function wipeProxiesPool() {
+    if (!confirm('Are you sure you want to delete ALL global backup proxies?')) return;
+    try {
+        const response = await fetch('/api/admin/proxy/clear', { method: 'POST' });
+        const data = await response.json();
+        if (data.error) {
+            noti(data.error.toUpperCase(), 1);
+        } else {
+            noti('GLOBAL PROXY POOL WIPED');
+            loadDbInfo();
+        }
+    } catch (e) {
+        noti('Failed to wipe proxy pool', 1);
     }
 }
 
