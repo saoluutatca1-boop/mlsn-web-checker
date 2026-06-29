@@ -160,18 +160,10 @@ def parse_cards(text):
     cards = []
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     for line in lines:
-        if '|' in line:
-            parts = [p.strip() for p in line.split('|')]
-            parts = [p for p in parts if p]
-            if len(parts) >= 1:
-                card_str = parts[0]
-            else:
-                continue
-        else:
-            card_str = line.strip()
-
+        card_str = line.strip()
         card_str = re.sub(r'\s+', ' ', card_str)
-        match = re.search(r'(\d{13,19})\s*[|/\s]\s*(\d{1,2})\s*[|/\s]\s*(\d{2,4})\s*[|/\s]\s*(\d{3,4})', card_str)
+
+        match = re.search(r'(\d{13,19})\s*[|/]\s*(\d{1,2})\s*[|/]\s*(\d{2,4})\s*[|/]\s*(\d{3,4})', card_str)
         if match:
             cards.append({
                 'cc': match.group(1),
@@ -182,7 +174,7 @@ def parse_cards(text):
             })
             continue
 
-        match = re.search(r'(\d{13,19})\s*[|/\s]\s*(\d{1,2})\s*[|/\s]\s*(\d{2,4})\s*[|/\s]\s*(\d{3,4})', card_str)
+        match = re.search(r'(\d{13,19})\s+(\d{1,2})\s+(\d{2,4})\s+(\d{3,4})', card_str)
         if match:
             cards.append({
                 'cc': match.group(1),
