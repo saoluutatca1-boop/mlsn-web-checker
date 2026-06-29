@@ -188,26 +188,27 @@ def parse_cards(text):
 
 
 def classify_response(api_response):
-    combined = api_response.lower().strip()
+    combined = api_response.lower().strip().replace('_', ' ').replace('-', ' ')
+    raw = api_response.lower().strip()
 
     if any(k in combined for k in CHARGED_KEYWORDS):
         return "LIVE", "🔥"
-    if any(k in combined for k in ["fraud", "fraudulent", "high risk", "high_risk", "risk_review", "risk review", "suspicious", "do_not_honor", "do not honor", "pickup_card", "pickup card", "lost_card", "lost card", "stolen_card", "stolen card"]):
+    if any(k in raw for k in ["fraud", "fraudulent", "high risk", "high_risk", "risk_review", "risk review", "suspicious", "do_not_honor", "do not honor", "pickup_card", "pickup card", "lost_card", "lost card", "stolen_card", "stolen card"]):
         return "LIVE", "🎆"
-    if any(k in combined for k in ["cvv", "ccn", "avs", "security code", "incorrect cvc", "incorrect_cvc", "cvc mismatch", "cvc_mismatch", "cvv mismatch", "cvv_mismatch", "avs mismatch", "avs_mismatch", "address mismatch", "address_mismatch", "zip code", "postal code", "billing address mismatch", "billing_address_mismatch"]):
+    if any(k in raw for k in ["cvv", "ccn", "avs", "security code", "incorrect cvc", "incorrect_cvc", "cvc mismatch", "cvc_mismatch", "cvv mismatch", "cvv_mismatch", "avs mismatch", "avs_mismatch", "address mismatch", "address_mismatch", "zip code", "postal code", "billing address mismatch", "billing_address_mismatch"]):
         return "LIVE", "✅"
-    if any(k in combined for k in ["insufficient", "low balance", "low_balance", "funds", "not enough", "limit exceeded", "credit limit"]):
+    if any(k in raw for k in ["insufficient", "low balance", "low_balance", "funds", "not enough", "limit exceeded", "credit limit"]):
         return "LOW_BALANCE", "🎆"
-    if any(k in combined for k in ["otp", "3d secure", "3d_secure", "3ds", "three_d_secure", "authentication required", "authentication_required", "requires_action", "payer_action", "payer_action_required", "redirect_to_3ds", "challenge", "vbv", "securecode", "sca_required", "sca required"]) or any(k in combined for k in SHOPIFY_3DS_KEYWORDS):
+    if any(k in raw for k in ["otp", "3d secure", "3d_secure", "3ds", "three_d_secure", "authentication required", "authentication_required", "requires_action", "payer_action", "payer_action_required", "redirect_to_3ds", "challenge", "vbv", "securecode", "sca_required", "sca required"]) or any(k in raw for k in SHOPIFY_3DS_KEYWORDS):
         return "OTP_REQUIRED", "✅"
     if "approved" in combined or "authorized" in combined or "authorised" in combined:
         if not any(neg in combined for neg in ("not approved", "unapproved", "not authorized", "declined")):
             return "LIVE", "✅"
-    if any(k in combined for k in SHOPIFY_WEB_ERROR_KEYWORDS):
+    if any(k in raw for k in SHOPIFY_WEB_ERROR_KEYWORDS):
         return "ERROR", "⚠️"
-    if any(k in combined for k in ["declined", "dead", "invalid", "failed", "rejected", "blocked", "card_declined", "generic_decline"]):
+    if any(k in raw for k in ["declined", "dead", "invalid", "failed", "rejected", "blocked", "card declined", "card_declined", "generic decline", "generic_decline", "do not honor", "do_not_honor"]):
         return "DEAD", "❌"
-    if "error" in combined:
+    if "error" in raw:
         return "ERROR", "⚠️"
     return "UNKNOWN", "⚠️"
 
@@ -240,6 +241,8 @@ async def check_card(session, card, site, proxy_raw):
             api_response = str(raw.get("Response") or raw.get("response") or raw.get("message") or "").strip()
             price_raw = raw.get("Price") or raw.get("price") or raw.get("amount") or "-"
             currency = str(raw.get("Currency") or raw.get("currency") or "").strip()
+            status_field = raw.get("Status") or raw.get("status") or ""
+            check_time = raw.get("Time") or raw.get("time") or raw.get("elapsed") or ""
 
             if price_raw and str(price_raw) not in ("-", ""):
                 try:
@@ -255,12 +258,14 @@ async def check_card(session, card, site, proxy_raw):
 
             return {
                 'status': status,
-                'msg': f"{api_response} {emoji}",
+                'msg': api_response,
                 'emoji': emoji,
                 'price': str(price_raw),
                 'gateway': gateway,
                 'site': site,
-                'receipt_id': receipt_id
+                'receipt_id': receipt_id,
+                'time': str(check_time) if check_time else "-",
+                'api_status': str(status_field) if status_field else ""
             }
     except asyncio.TimeoutError:
         return {

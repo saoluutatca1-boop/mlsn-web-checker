@@ -789,6 +789,9 @@
                             <span class="status-badge ${r.status}">${r.status}</span>
                             ${escHtml(r.msg)}
                         </div>
+                        <div class="result-detail" style="margin-top:3px;color:#6b7280;font-size:0.75rem;">
+                            ${escHtml(r.gateway)} | ${escHtml(r.receipt_id)} | ${escHtml(r.time)}s
+                        </div>
                     </div>
                     <div class="result-meta">
                         <div class="result-price">${escHtml(r.price)}</div>
