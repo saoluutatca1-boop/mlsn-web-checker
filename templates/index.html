@@ -653,26 +653,16 @@
             <div class="pool-grid">
                 <div class="panel">
                     <div class="panel-title">
-                        <span class="icon">🌐</span> Sites Pool
+                        <span class="icon">🌐</span> Sites Pool (from Admin DB)
                     </div>
-                    <input class="pool-input" id="siteInput" placeholder="Add sites (one per line)">
-                    <div class="pool-actions">
-                        <button class="btn-sm" onclick="addSites()">Add Sites</button>
-                        <button class="btn-sm danger" onclick="clearSites()">Clear All</button>
-                    </div>
-                    <div class="pool-list" id="sitesList"></div>
+                    <div class="pool-list" id="sitesList" style="max-height:200px;overflow-y:auto;"></div>
                 </div>
 
                 <div class="panel">
                     <div class="panel-title">
-                        <span class="icon">🔒</span> Proxies Pool
+                        <span class="icon">🔒</span> Proxies Pool (from Admin DB)
                     </div>
-                    <input class="pool-input" id="proxyInput" placeholder="Add proxies (one per line)&#10;Format: ip:port:user:pass">
-                    <div class="pool-actions">
-                        <button class="btn-sm" onclick="addProxies()">Add Proxies</button>
-                        <button class="btn-sm danger" onclick="clearProxies()">Clear All</button>
-                    </div>
-                    <div class="pool-list" id="proxiesList"></div>
+                    <div class="pool-list" id="proxiesList" style="max-height:200px;overflow-y:auto;"></div>
                 </div>
             </div>
         </div>
@@ -707,116 +697,18 @@
 
         async function loadSites() {
             try {
-                const resp = await fetch('/api/sites');
-                const sites = await resp.json();
-                const list = document.getElementById('sitesList');
-                if (sites.length === 0) {
-                    list.innerHTML = '<div class="empty-state">No sites added yet</div>';
-                    return;
-                }
-                list.innerHTML = sites.map(s => `
-                    <div class="pool-item">
-                        <span class="url">${escHtml(s)}</span>
-                        <button class="remove-btn" onclick="removeSite('${escAttr(s)}')">✕</button>
-                    </div>
-                `).join('');
+                const resp = await fetch('/api/stats');
+                const data = await resp.json();
+                document.getElementById('sitesList').innerHTML = `<div class="empty-state">${data.sites_count} sites loaded from Admin DB</div>`;
             } catch (e) {}
         }
 
         async function loadProxies() {
             try {
-                const resp = await fetch('/api/proxies');
-                const proxies = await resp.json();
-                const list = document.getElementById('proxiesList');
-                if (proxies.length === 0) {
-                    list.innerHTML = '<div class="empty-state">No proxies added yet</div>';
-                    return;
-                }
-                list.innerHTML = proxies.map(p => `
-                    <div class="pool-item">
-                        <span class="url">${escHtml(p)}</span>
-                        <button class="remove-btn" onclick="removeProxy('${escAttr(p)}')">✕</button>
-                    </div>
-                `).join('');
-            } catch (e) {}
-        }
-
-        async function addSites() {
-            const input = document.getElementById('siteInput');
-            const lines = input.value.split('\n').filter(l => l.trim());
-            if (lines.length === 0) return;
-            
-            try {
-                const resp = await fetch('/api/sites', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ urls: lines })
-                });
+                const resp = await fetch('/api/stats');
                 const data = await resp.json();
-                showNotification(`Added ${data.added} sites`);
-                input.value = '';
-                loadSites();
-                loadStats();
-            } catch (e) {
-                showNotification('Error adding sites', true);
-            }
-        }
-
-        async function addProxies() {
-            const input = document.getElementById('proxyInput');
-            const lines = input.value.split('\n').filter(l => l.trim());
-            if (lines.length === 0) return;
-            
-            try {
-                const resp = await fetch('/api/proxies', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ proxies: lines })
-                });
-                const data = await resp.json();
-                showNotification(`Added ${data.added} proxies`);
-                input.value = '';
-                loadProxies();
-                loadStats();
-            } catch (e) {
-                showNotification('Error adding proxies', true);
-            }
-        }
-
-        async function removeSite(url) {
-            try {
-                await fetch(`/api/sites/${encodeURIComponent(url)}`, { method: 'DELETE' });
-                loadSites();
-                loadStats();
+                document.getElementById('proxiesList').innerHTML = `<div class="empty-state">${data.proxies_count} proxies loaded from Admin DB</div>`;
             } catch (e) {}
-        }
-
-        async function removeProxy(proxy) {
-            try {
-                await fetch(`/api/proxies/${encodeURIComponent(proxy)}`, { method: 'DELETE' });
-                loadProxies();
-                loadStats();
-            } catch (e) {}
-        }
-
-        async function clearSites() {
-            if (!confirm('Clear all sites?')) return;
-            const sites = await (await fetch('/api/sites')).json();
-            for (const s of sites) {
-                await fetch(`/api/sites/${encodeURIComponent(s)}`, { method: 'DELETE' });
-            }
-            loadSites();
-            loadStats();
-        }
-
-        async function clearProxies() {
-            if (!confirm('Clear all proxies?')) return;
-            const proxies = await (await fetch('/api/proxies')).json();
-            for (const p of proxies) {
-                await fetch(`/api/proxies/${encodeURIComponent(p)}`, { method: 'DELETE' });
-            }
-            loadProxies();
-            loadStats();
         }
 
         async function startCheck() {
