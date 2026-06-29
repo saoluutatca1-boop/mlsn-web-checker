@@ -16,6 +16,7 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "mlsn-web-checker-secret")
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 SAC_API = os.getenv("SAC_API", "https://sac-1-qg37.onrender.com")
