@@ -309,6 +309,12 @@ async def _do_check(session, card, site, proxy_raw):
             receipt_id = str(raw.get("receipt_id") or raw.get("Receipt ID") or raw.get("receipt_ID") or "N/A").strip()
             status, emoji = classify_response(api_response)
 
+            if status == "UNKNOWN" and api_response:
+                api_status = raw.get("Status") or raw.get("status")
+                if api_status is False or api_status == "false":
+                    status = "ERROR"
+                    emoji = "⚠️"
+
             return {
                 'status': status, 'msg': api_response, 'emoji': emoji,
                 'price': str(price_raw), 'gateway': gateway, 'site': site,
