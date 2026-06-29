@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLSN // ADMIN CONTROL</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-main: #080c10;
+            --bg-panel: #0d1217;
+            --bg-input: #05070a;
+            --border-color: rgba(255, 255, 255, 0.07);
+            --border-hover: rgba(255, 255, 255, 0.15);
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #475569;
+            
+            --accent-cyan: #00ffd1;
+            --color-live: #00ffd1;
+            --color-dead: #ff3e6c;
+            --color-otp: #3b82f6;
+            --color-low: #b300ff;
+            --color-err: #ffaa00;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-main);
+            background-image: radial-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+            background-size: 20px 20px;
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.4;
+            display: flex;
+            flex-direction: column;
+        }
+
+        nav {
+            background-color: rgba(13, 18, 23, 0.85);
+            border-bottom: 1px solid var(--border-color);
+            backdrop-filter: blur(12px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            padding: 12px 24px;
+        }
+
+        .nav-wrap {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 1.1rem;
+            letter-spacing: 0.5px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .brand span {
+            color: var(--accent-cyan);
+        }
+
+        .brand-link {
+            text-decoration: none;
+            color: var(--text-secondary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            transition: color 0.2s;
+        }
+
+        .brand-link:hover {
+            color: #fff;
+        }
+
+        /* App Layout Container */
+        .app-container {
+            max-width: 1600px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            gap: 20px;
+            flex: 1;
+        }
+
+        @media (max-width: 1024px) {
+            .app-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Sidebar Blocks */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .card-panel {
+            background-color: rgba(13, 18, 23, 0.45);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            transition: border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .card-panel:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .panel-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-title span {
+            color: var(--text-muted);
+        }
+
+        .db-meta {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            margin-bottom: 10px;
+        }
+
+        .db-label {
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            font-size: 0.65rem;
+            display: block;
+            margin-bottom: 3px;
+        }
+
+        .db-value {
+            color: var(--text-primary);
+            word-break: break-all;
+            background-color: var(--bg-input);
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            display: block;
+        }
+
+        .db-value.conn-ok {
+            border-color: rgba(0, 255, 209, 0.3);
+            color: var(--accent-cyan);
+        }
+
+        /* Database Managers List (Right column) */
+        .managers-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .manager-panel {
+            background-color: rgba(13, 18, 23, 0.45);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .manager-panel:hover {
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .manager-header {
+            padding: 16px 20px;
+            background-color: rgba(5, 7, 10, 0.4);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .manager-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .manager-title span {
+            color: var(--text-muted);
+        }
+
+        /* Input Controls */
+        .add-form {
+            padding: 16px 20px;
+            background-color: rgba(5, 7, 10, 0.2);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            background-color: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--accent-cyan);
+        }
+
+        .btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 0.75rem;
+            padding: 8px 16px;
+            border-radius: 4px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s;
+            color: #080c10;
+            background-color: var(--accent-cyan);
+        }
+
+        .btn:hover {
+            box-shadow: 0 0 10px rgba(0, 255, 209, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-delete {
+            background-color: transparent;
+            border: 1px solid rgba(255, 62, 108, 0.3);
+            color: var(--color-dead);
+            font-size: 0.65rem;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 3px;
+        }
+
+        .btn-delete:hover {
+            background-color: rgba(255, 62, 108, 0.1);
+            border-color: var(--color-dead);
+            box-shadow: 0 0 8px rgba(255, 62, 108, 0.1);
+        }
+
+        /* Database item row list */
+        .items-list {
+            padding: 8px 0;
+            max-height: 250px;
+            overflow-y: auto;
+            background-color: #05070a;
+        }
+
+        .items-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        .items-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .items-list::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 3px;
+        }
+
+        .item-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.015);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            animation: slideUpFade 0.2s cubic-bezier(0.215, 0.61, 0.355, 1) forwards;
+            will-change: transform, opacity;
+        }
+
+        .item-row:hover {
+            background-color: rgba(255, 255, 255, 0.015);
+        }
+
+        .item-text {
+            color: var(--text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin-right: 20px;
+        }
+
+        @keyframes slideUpFade {
+            from {
+                opacity: 0;
+                transform: translateY(4px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .empty-list {
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            text-align: center;
+            padding: 24px;
+            font-style: italic;
+        }
+
+        /* Notifications Box */
+        .noti-box {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+        }
+
+        .noti {
+            pointer-events: auto;
+            width: 320px;
+            padding: 12px 16px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+            animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1), fadeOut 0.25s ease 2.7s forwards;
+            color: #fff;
+            background-color: var(--bg-panel);
+            border-left: 3px solid transparent;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        @keyframes fadeOut {
+            to { opacity: 0; transform: translateY(10px); }
+        }
+
+        .noti.ok { border-left-color: var(--color-live); }
+        .noti.err { border-left-color: var(--color-dead); }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            border-top: 1px solid var(--border-color);
+            background-color: rgba(5, 7, 10, 0.2);
+            margin-top: auto;
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="nav-wrap">
+        <div class="brand">MLSN <span>//</span> ADMIN PANEL</div>
+        <div style="display: flex; gap: 20px; align-items: center;">
+            <a href="/" class="brand-link"><i class="fa-solid fa-arrow-left"></i> BACK TO RUNNER</a>
+            <a href="/logout" class="brand-link" style="color: var(--color-dead);"><i class="fa-solid fa-right-from-bracket"></i> LOGOUT</a>
+        </div>
+    </div>
+</nav>
+
+<div class="app-container">
+    <div class="sidebar">
+        <div class="card-panel">
+            <div class="panel-title">
+                <span>[01]</span> DB STATS
+            </div>
+            
+            <div class="db-meta">
+                <span class="db-label">DATABASE HOST</span>
+                <span class="db-value" id="admin-db-url">Loading...</span>
+            </div>
+
+            <div class="db-meta">
+                <span class="db-label">CONNECTION STATE</span>
+                <span class="db-value conn-ok" id="admin-db-status">Loading...</span>
+            </div>
+
+            <div class="db-meta">
+                <span class="db-label">TOTAL SITES</span>
+                <span class="db-value" id="admin-total-sites">-</span>
+            </div>
+
+            <div class="db-meta">
+                <span class="db-label">TOTAL PROXIES</span>
+                <span class="db-value" id="admin-total-proxies">-</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="managers-container">
+        <!-- Sites Pool Manager -->
+        <div class="manager-panel">
+            <div class="manager-header">
+                <div class="manager-title">
+                    <span>&gt;_</span> GLOBAL SITES POOL
+                </div>
+            </div>
+            <div class="add-form">
+                <input type="text" id="add-site-url" placeholder="https://new-shopify-store.com">
+                <button class="btn" onclick="addSite()"><i class="fa-solid fa-plus"></i> ADD SITE</button>
+            </div>
+            <div class="items-list" id="sites-list">
+                <div class="empty-list">Loading global site pool...</div>
+            </div>
+        </div>
+
+        <!-- Proxies Pool Manager -->
+        <div class="manager-panel">
+            <div class="manager-header">
+                <div class="manager-title">
+                    <span>&gt;_</span> GLOBAL PROXIES POOL <span>(BACKUP STORE)</span>
+                </div>
+            </div>
+            <div class="add-form">
+                <input type="text" id="add-proxy-val" placeholder="ip:port:user:pass or host:port">
+                <button class="btn" onclick="addProxy()"><i class="fa-solid fa-plus"></i> ADD PROXY</button>
+            </div>
+            <div class="items-list" id="proxies-list">
+                <div class="empty-list">Loading global proxy pool...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<footer>MLSN // DATABASE CONTROL CONSOLE &copy; 2026</footer>
+<div class="noti-box" id="noti-box"></div>
+
+<script>
+let sites = [];
+let proxies = [];
+
+async function loadDbInfo() {
+    try {
+        const response = await fetch('/api/admin/db_info');
+        const data = await response.json();
+        
+        sites = data.sites || [];
+        proxies = data.proxies || [];
+
+        // Update stats
+        document.getElementById('admin-db-url').textContent = data.db_url;
+        
+        const statusEl = document.getElementById('admin-db-status');
+        statusEl.textContent = data.db_status.toUpperCase();
+        if (data.db_status.includes('Active')) {
+            statusEl.className = 'db-value conn-ok';
+        } else {
+            statusEl.className = 'db-value';
+            statusEl.style.color = '#ff3e6c';
+            statusEl.style.borderColor = 'rgba(255, 62, 108, 0.3)';
+        }
+
+        document.getElementById('admin-total-sites').textContent = sites.length;
+        document.getElementById('admin-total-proxies').textContent = proxies.length;
+
+        renderSites();
+        renderProxies();
+    } catch (e) {
+        console.error(e);
+        noti('Failed to load database status', 1);
+    }
+}
+
+function renderSites() {
+    const listEl = document.getElementById('sites-list');
+    if (sites.length === 0) {
+        listEl.innerHTML = '<div class="empty-list">No active global sites configured. Default fallback is active.</div>';
+        return;
+    }
+
+    listEl.innerHTML = sites.map(site => `
+        <div class="item-row">
+            <span class="item-text">${esc(site)}</span>
+            <button class="btn-delete" onclick="deleteSite('${esc(site)}')">[DELETE]</button>
+        </div>
+    `).join('');
+}
+
+function renderProxies() {
+    const listEl = document.getElementById('proxies-list');
+    if (proxies.length === 0) {
+        listEl.innerHTML = '<div class="empty-list">No global proxies loaded.</div>';
+        return;
+    }
+
+    listEl.innerHTML = proxies.map(proxy => `
+        <div class="item-row">
+            <span class="item-text">${esc(proxy)}</span>
+            <button class="btn-delete" onclick="deleteProxy('${esc(proxy)}')">[DELETE]</button>
+        </div>
+    `).join('');
+}
+
+async function addSite() {
+    const input = document.getElementById('add-site-url');
+    const url = input.value.trim();
+    if (!url) {
+        noti('Site URL cannot be empty', 1);
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/admin/site/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
+        });
+        const data = await response.json();
+        if (data.error) {
+            noti(data.error.toUpperCase(), 1);
+        } else {
+            noti('Site added globally');
+            input.value = '';
+            loadDbInfo();
+        }
+    } catch (e) {
+        noti('Error adding global site', 1);
+    }
+}
+
+async function deleteSite(url) {
+    if (!confirm(`Delete global site: ${url}? All users will immediately stop checking on this store.`)) return;
+
+    try {
+        const response = await fetch('/api/admin/site/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
+        });
+        const data = await response.json();
+        if (data.error) {
+            noti(data.error.toUpperCase(), 1);
+        } else {
+            noti('Site deleted globally');
+            loadDbInfo();
+        }
+    } catch (e) {
+        noti('Error deleting global site', 1);
+    }
+}
+
+async function addProxy() {
+    const input = document.getElementById('add-proxy-val');
+    const proxy = input.value.trim();
+    if (!proxy) {
+        noti('Proxy string cannot be empty', 1);
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/admin/proxy/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ proxy: proxy })
+        });
+        const data = await response.json();
+        if (data.error) {
+            noti(data.error.toUpperCase(), 1);
+        } else {
+            noti('Proxy added globally');
+            input.value = '';
+            loadDbInfo();
+        }
+    } catch (e) {
+        noti('Error adding global proxy', 1);
+    }
+}
+
+async function deleteProxy(proxy) {
+    if (!confirm(`Delete global proxy: ${proxy}?`)) return;
+
+    try {
+        const response = await fetch('/api/admin/proxy/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ proxy: proxy })
+        });
+        const data = await response.json();
+        if (data.error) {
+            noti(data.error.toUpperCase(), 1);
+        } else {
+            noti('Proxy deleted globally');
+            loadDbInfo();
+        }
+    } catch (e) {
+        noti('Error deleting global proxy', 1);
+    }
+}
+
+function noti(m, e) {
+    const box = document.getElementById('noti-box');
+    const n = document.createElement('div');
+    n.className = 'noti ' + (e ? 'err' : 'ok');
+    
+    const iconStr = e ? '<i class="fa-solid fa-triangle-exclamation" style="color:var(--color-dead)"></i>' : '<i class="fa-solid fa-circle-info" style="color:var(--accent-cyan)"></i>';
+    n.innerHTML = `${iconStr} <span>${m}</span>`;
+    
+    box.appendChild(n);
+    setTimeout(() => n.remove(), 3000);
+}
+
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+}
+
+// Startup
+loadDbInfo();
+</script>
+</body>
+</html>

@@ -7,7 +7,9 @@ import asyncio
 import aiohttp
 import psycopg2
 import psycopg2.pool
-from flask import Flask, render_template, request, jsonify, Response
+import hashlib
+import hmac
+from flask import Flask, render_template, request, jsonify, Response, session, redirect, url_for
 from dotenv import load_dotenv
 from collections import deque
 from threading import Lock
@@ -24,6 +26,48 @@ _file_lock = Lock()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "mlsn-web-checker-secret")
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")
+
+
+def verify_telegram_auth(auth_data):
+    check_hash = auth_data.get('hash')
+    if not check_hash or not TELEGRAM_BOT_TOKEN:
+        return False
+
+    try:
+        auth_date = int(auth_data.get('auth_date', 0))
+        if time.time() - auth_date > 86400:
+            return False
+    except:
+        return False
+
+    data_list = []
+    for k, v in sorted(auth_data.items()):
+        if k != 'hash' and v is not None:
+            data_list.append(f"{k}={v}")
+    data_check_string = "\n".join(data_list)
+
+    secret_key = hashlib.sha256(TELEGRAM_BOT_TOKEN.encode('utf-8')).digest()
+    computed_hash = hmac.new(secret_key, data_check_string.encode('utf-8'), hashlib.sha256).hexdigest()
+
+    return computed_hash == check_hash
+
+
+@app.before_request
+def require_login():
+    allowed_routes = ['login', 'api_login_telegram', 'api_login_admin', 'api_login_mock']
+    if request.endpoint in allowed_routes or request.path.startswith('/static/'):
+        return
+
+    is_logged_in = session.get('user') is not None or session.get('admin') is True
+
+    if not is_logged_in:
+        return redirect(url_for('login', next=request.path))
+
+    if request.path.startswith('/vanlinh') and not session.get('admin'):
+        return redirect(url_for('login', admin='1', next=request.path))
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 SAC_API = os.getenv("SAC_API", "https://sac-1-qg37.onrender.com")
@@ -82,10 +126,35 @@ SHOPIFY_3DS_KEYWORDS = [
 ]
 
 
+def init_db_tables():
+    if not DATABASE_URL:
+        return
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=3)
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS sites (
+                    id SERIAL PRIMARY KEY,
+                    url TEXT UNIQUE NOT NULL
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS proxies (
+                    id SERIAL PRIMARY KEY,
+                    proxy TEXT UNIQUE NOT NULL
+                );
+            """)
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        print("DB table creation failed:", e)
+
+
 def get_db():
     global DB_POOL
     try:
         if DB_POOL is None and DATABASE_URL:
+            init_db_tables()
             DB_POOL = psycopg2.pool.ThreadedConnectionPool(
                 DB_POOL_MIN, DB_POOL_MAX,
                 DATABASE_URL,
@@ -174,17 +243,18 @@ def _save_file(path, data):
 
 
 def get_sites():
-    user_sites = _load_file(SITES_FILE)
-    if user_sites:
-        return user_sites[:]
-    return _load_db_sites()[:]
+    db_sites = _load_db_sites()
+    file_sites = _load_file(SITES_FILE)
+    combined = list(dict.fromkeys(db_sites + file_sites))
+    if not combined:
+        return DEFAULT_SHOPIFY_SITES[:]
+    return combined
 
 
 def get_proxies():
-    user_proxies = _load_file(PROXIES_FILE)
-    if user_proxies:
-        return user_proxies[:]
-    return _load_db_proxies()[:]
+    db_proxies = _load_db_proxies()
+    file_proxies = _load_file(PROXIES_FILE)
+    return list(dict.fromkeys(db_proxies + file_proxies))
 
 
 def pick_random_site(sites):
@@ -599,6 +669,246 @@ def api_clear_sites():
 def api_clear_proxies():
     _save_file(PROXIES_FILE, [])
     return jsonify({'cleared': True})
+
+
+def db_add_site(url):
+    conn = get_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO sites (url) VALUES (%s) ON CONFLICT (url) DO NOTHING", (url,))
+                conn.commit()
+        except:
+            pass
+        finally:
+            release_db(conn)
+
+
+def db_delete_site(url):
+    conn = get_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM sites WHERE url = %s", (url,))
+                conn.commit()
+        except:
+            pass
+        finally:
+            release_db(conn)
+
+
+def db_add_proxy(proxy):
+    conn = get_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO proxies (proxy) VALUES (%s) ON CONFLICT (proxy) DO NOTHING", (proxy,))
+                conn.commit()
+        except:
+            pass
+        finally:
+            release_db(conn)
+
+
+def db_delete_proxy(proxy):
+    conn = get_db()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM proxies WHERE proxy = %s", (proxy,))
+                conn.commit()
+        except:
+            pass
+        finally:
+            release_db(conn)
+
+
+@app.route('/login')
+def login():
+    bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "")
+    return render_template('login.html', bot_username=bot_username)
+
+
+@app.route('/api/login/admin', methods=['POST'])
+def api_login_admin():
+    data = request.json or {}
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+
+    if username == "vanlinhcute" and password == "gaidepknoinhieu":
+        session['admin'] = True
+        session['user'] = "vanlinhcute"
+        return jsonify({'success': True, 'redirect': '/vanlinh'})
+
+    return jsonify({'error': 'Incorrect credentials'}), 401
+
+
+@app.route('/api/login/telegram', methods=['GET'])
+def api_login_telegram():
+    auth_data = request.args.to_dict()
+
+    if os.getenv("TELEGRAM_BOT_TOKEN"):
+        if verify_telegram_auth(auth_data):
+            session['user'] = auth_data.get('username') or auth_data.get('first_name') or auth_data.get('id')
+            return redirect('/')
+        else:
+            return "Telegram authentication failed.", 401
+    else:
+        username = auth_data.get('username') or auth_data.get('first_name') or "test_user"
+        session['user'] = username
+        return redirect('/')
+
+
+@app.route('/api/login/mock', methods=['POST'])
+def api_login_mock():
+    data = request.json or {}
+    username = data.get('username', '').strip()
+    if not username:
+        return jsonify({'error': 'Username is empty'}), 400
+    session['user'] = username
+    return jsonify({'success': True, 'redirect': '/'})
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
+@app.route('/vanlinh')
+def vanlinh_admin():
+    return render_template('vanlinh.html')
+
+
+@app.route('/api/admin/db_info', methods=['GET'])
+def api_admin_db_info():
+    # Load sites
+    db_sites = _load_db_sites()
+    file_sites = _load_file(SITES_FILE)
+    sites = list(dict.fromkeys(db_sites + file_sites))
+
+    # Load proxies
+    db_proxies = _load_db_proxies()
+    file_proxies = _load_file(PROXIES_FILE)
+    proxies = list(dict.fromkeys(db_proxies + file_proxies))
+
+    # Mask database connection string
+    db_status = "Disconnected"
+    masked_url = "None"
+    if DATABASE_URL:
+        db_status = "Connected"
+        parts = DATABASE_URL.split('@')
+        if len(parts) > 1:
+            masked_url = "postgresql://***:***@" + parts[1].split('?')[0]
+        else:
+            masked_url = "postgresql://***"
+
+        # Check connection validity
+        conn = get_db()
+        if conn:
+            db_status = "Connected (Active)"
+            release_db(conn)
+        else:
+            db_status = "Connected (Connection Error)"
+
+    return jsonify({
+        'db_status': db_status,
+        'db_url': masked_url,
+        'sites': sites,
+        'proxies': proxies
+    })
+
+
+@app.route('/api/admin/site/add', methods=['POST'])
+def api_admin_add_site():
+    data = request.json or {}
+    url = data.get('url', '').strip()
+    if not url:
+        return jsonify({'error': 'URL is empty'}), 400
+
+    # Save to local file
+    file_sites = _load_file(SITES_FILE)
+    if url not in file_sites:
+        file_sites.append(url)
+        _save_file(SITES_FILE, file_sites)
+
+    # Save to DB
+    db_add_site(url)
+
+    # Clear DB cache
+    global DB_SITES_CACHE
+    DB_SITES_CACHE = None
+
+    return jsonify({'success': True})
+
+
+@app.route('/api/admin/site/delete', methods=['POST'])
+def api_admin_delete_site():
+    data = request.json or {}
+    url = data.get('url', '').strip()
+    if not url:
+        return jsonify({'error': 'URL is empty'}), 400
+
+    # Remove from local file
+    file_sites = _load_file(SITES_FILE)
+    if url in file_sites:
+        file_sites.remove(url)
+        _save_file(SITES_FILE, file_sites)
+
+    # Delete from DB
+    db_delete_site(url)
+
+    # Clear DB cache
+    global DB_SITES_CACHE
+    DB_SITES_CACHE = None
+
+    return jsonify({'success': True})
+
+
+@app.route('/api/admin/proxy/add', methods=['POST'])
+def api_admin_add_proxy():
+    data = request.json or {}
+    proxy = data.get('proxy', '').strip()
+    if not proxy:
+        return jsonify({'error': 'Proxy is empty'}), 400
+
+    # Save to local file
+    file_proxies = _load_file(PROXIES_FILE)
+    if proxy not in file_proxies:
+        file_proxies.append(proxy)
+        _save_file(PROXIES_FILE, file_proxies)
+
+    # Save to DB
+    db_add_proxy(proxy)
+
+    # Clear DB cache
+    global DB_PROXIES_CACHE
+    DB_PROXIES_CACHE = None
+
+    return jsonify({'success': True})
+
+
+@app.route('/api/admin/proxy/delete', methods=['POST'])
+def api_admin_delete_proxy():
+    data = request.json or {}
+    proxy = data.get('proxy', '').strip()
+    if not proxy:
+        return jsonify({'error': 'Proxy is empty'}), 400
+
+    # Remove from local file
+    file_proxies = _load_file(PROXIES_FILE)
+    if proxy in file_proxies:
+        file_proxies.remove(proxy)
+        _save_file(PROXIES_FILE, file_proxies)
+
+    # Delete from DB
+    db_delete_proxy(proxy)
+
+    # Clear DB cache
+    global DB_PROXIES_CACHE
+    DB_PROXIES_CACHE = None
+
+    return jsonify({'success': True})
 
 
 if __name__ == '__main__':
