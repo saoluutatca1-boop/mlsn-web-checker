@@ -486,7 +486,11 @@ def api_check():
     
     concurrency = 20 if mode == 'msac' else 10
     
-    results = asyncio.run(check_cards_batch(cards, sites, proxies, concurrency))
+    loop = asyncio.new_event_loop()
+    try:
+        results = loop.run_until_complete(check_cards_batch(cards, sites, proxies, concurrency))
+    finally:
+        loop.close()
     
     stats = {
         'total': len(results),
@@ -525,7 +529,11 @@ def api_check_upload():
     
     concurrency = 20 if mode == 'msac' else 10
     
-    results = asyncio.run(check_cards_batch(cards, sites, proxies, concurrency))
+    loop = asyncio.new_event_loop()
+    try:
+        results = loop.run_until_complete(check_cards_batch(cards, sites, proxies, concurrency))
+    finally:
+        loop.close()
     
     stats = {
         'total': len(results),
