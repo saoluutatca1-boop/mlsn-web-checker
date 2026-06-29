@@ -10,8 +10,16 @@ import psycopg2.pool
 from flask import Flask, render_template, request, jsonify, Response
 from dotenv import load_dotenv
 from collections import deque
+from threading import Lock
 
 load_dotenv()
+
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+SITES_FILE = os.path.join(DATA_DIR, "sites.json")
+PROXIES_FILE = os.path.join(DATA_DIR, "proxies.json")
+_file_lock = Lock()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "mlsn-web-checker-secret")
@@ -31,9 +39,6 @@ DEFAULT_SHOPIFY_SITES = [
     "https://shop.yorkspacesystems.com",
     "https://davids-toothpaste.myshopify.com"
 ]
-
-USER_SITES = []
-USER_PROXIES = []
 
 DB_SITES_CACHE = None
 DB_PROXIES_CACHE = None
@@ -154,15 +159,31 @@ def _load_db_proxies():
         release_db(conn)
 
 
+def _load_file(path):
+    try:
+        with open(path, 'r') as f:
+            return json.load(f)
+    except:
+        return []
+
+
+def _save_file(path, data):
+    with _file_lock:
+        with open(path, 'w') as f:
+            json.dump(data, f)
+
+
 def get_sites():
-    if USER_SITES:
-        return USER_SITES[:]
+    user_sites = _load_file(SITES_FILE)
+    if user_sites:
+        return user_sites[:]
     return _load_db_sites()[:]
 
 
 def get_proxies():
-    if USER_PROXIES:
-        return USER_PROXIES[:]
+    user_proxies = _load_file(PROXIES_FILE)
+    if user_proxies:
+        return user_proxies[:]
     return _load_db_proxies()[:]
 
 
@@ -459,26 +480,26 @@ def api_check_upload():
 
 @app.route('/api/stats', methods=['GET'])
 def api_stats():
-    if USER_SITES:
-        sc = len(USER_SITES)
+    user_sites = _load_file(SITES_FILE)
+    user_proxies = _load_file(PROXIES_FILE)
+
+    if user_sites:
+        sc = len(user_sites)
     elif DB_SITES_CACHE is not None:
         sc = len(DB_SITES_CACHE)
     else:
         sc = len(DEFAULT_SHOPIFY_SITES)
 
-    if USER_PROXIES:
-        pc = len(USER_PROXIES)
-    elif DB_PROXIES_CACHE is not None:
-        pc = len(DB_PROXIES_CACHE)
-    else:
-        pc = 0
+    pc = len(user_proxies) if user_proxies else 0
+    if not user_proxies and not pc:
+        db_p = _load_db_proxies()
+        pc = len(db_p)
 
     return jsonify({'sites_count': sc, 'proxies_count': pc, 'api_url': SAC_API})
 
 
 @app.route('/api/sites/upload', methods=['POST'])
 def api_upload_sites():
-    global USER_SITES
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
     file = request.files['file']
@@ -488,13 +509,13 @@ def api_upload_sites():
     lines = [l.strip() for l in content.split('\n') if l.strip()]
     if not lines:
         return jsonify({'error': 'Empty file'}), 400
-    USER_SITES = list(dict.fromkeys(lines))
-    return jsonify({'loaded': len(USER_SITES)})
+    sites = list(dict.fromkeys(lines))
+    _save_file(SITES_FILE, sites)
+    return jsonify({'loaded': len(sites)})
 
 
 @app.route('/api/proxies/upload', methods=['POST'])
 def api_upload_proxies():
-    global USER_PROXIES
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
     file = request.files['file']
@@ -504,21 +525,20 @@ def api_upload_proxies():
     lines = [l.strip() for l in content.split('\n') if l.strip()]
     if not lines:
         return jsonify({'error': 'Empty file'}), 400
-    USER_PROXIES = list(dict.fromkeys(lines))
-    return jsonify({'loaded': len(USER_PROXIES)})
+    proxies = list(dict.fromkeys(lines))
+    _save_file(PROXIES_FILE, proxies)
+    return jsonify({'loaded': len(proxies)})
 
 
 @app.route('/api/sites/clear', methods=['POST'])
 def api_clear_sites():
-    global USER_SITES
-    USER_SITES = []
+    _save_file(SITES_FILE, [])
     return jsonify({'cleared': True})
 
 
 @app.route('/api/proxies/clear', methods=['POST'])
 def api_clear_proxies():
-    global USER_PROXIES
-    USER_PROXIES = []
+    _save_file(PROXIES_FILE, [])
     return jsonify({'cleared': True})
 
 
