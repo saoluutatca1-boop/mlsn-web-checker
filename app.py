@@ -397,6 +397,27 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/api/check_batch', methods=['POST'])
+def api_check_batch():
+    data = request.json or {}
+    cards = data.get('cards', [])
+    if not cards:
+        return jsonify({'error': 'No cards provided'}), 400
+
+    sites = get_sites()
+    proxies = get_proxies()
+
+    try:
+        loop = asyncio.new_event_loop()
+        try:
+            results = loop.run_until_complete(check_cards_batch(cards, sites, proxies))
+        finally:
+            loop.close()
+        return jsonify({'results': results})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/check', methods=['POST'])
 def api_check():
     data = request.json
@@ -412,7 +433,7 @@ def api_check():
         all_results = []
         loop = asyncio.new_event_loop()
         try:
-            batch_size = 500
+            batch_size = 200
             for i in range(0, len(cards), batch_size):
                 batch = cards[i:i+batch_size]
                 batch_results = loop.run_until_complete(check_cards_batch(batch, sites, proxies))
@@ -455,7 +476,7 @@ def api_check_upload():
         all_results = []
         loop = asyncio.new_event_loop()
         try:
-            batch_size = 500
+            batch_size = 200
             for i in range(0, len(cards), batch_size):
                 batch = cards[i:i+batch_size]
                 batch_results = loop.run_until_complete(check_cards_batch(batch, sites, proxies))
