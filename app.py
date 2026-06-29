@@ -261,9 +261,9 @@ def classify_response(api_response):
     raw = api_response.lower().strip()
 
     if any(k in combined for k in CHARGED_KEYWORDS):
-        return "LIVE", "🔥"
+        return "CHARGED", "🔥"
     if any(k in raw for k in ["fraud", "fraudulent", "high risk", "high_risk", "risk_review", "risk review", "suspicious", "do_not_honor", "do not honor", "pickup_card", "pickup card", "lost_card", "lost card", "stolen_card", "stolen card"]):
-        return "LIVE", "🎆"
+        return "FRAUD", "⚠️"
     if any(k in raw for k in ["cvv", "ccn", "avs", "security code", "incorrect cvc", "incorrect_cvc", "cvc mismatch", "cvc_mismatch", "cvv mismatch", "cvv_mismatch", "avs mismatch", "avs_mismatch", "address mismatch", "address_mismatch", "zip code", "postal code", "billing address mismatch", "billing_address_mismatch"]):
         return "LIVE", "✅"
     if any(k in raw for k in ["insufficient", "low balance", "low_balance", "funds", "not enough", "limit exceeded", "credit limit"]):
@@ -282,7 +282,7 @@ def classify_response(api_response):
     return "UNKNOWN", "⚠️"
 
 
-NO_RETRY_STATUSES = frozenset(["LIVE", "DEAD", "LOW_BALANCE", "OTP_REQUIRED"])
+NO_RETRY_STATUSES = frozenset(["CHARGED", "FRAUD", "LIVE", "DEAD", "LOW_BALANCE", "OTP_REQUIRED"])
 
 EXPIRY_KEYWORDS = frozenset([
     "expired", "expiry", "expiration", "invalid month", "invalid year",
@@ -404,13 +404,22 @@ def api_check_batch():
     if not cards:
         return jsonify({'error': 'No cards provided'}), 400
 
+    # Extract user-specific proxies (no longer fallback to global DB)
+    proxies = data.get('proxies', [])
+
+    # Extract custom concurrency/semaphore
+    concurrency = data.get('concurrency') or data.get('semaphore') or 1000
+    try:
+        concurrency = int(concurrency)
+    except:
+        concurrency = 1000
+
     sites = get_sites()
-    proxies = get_proxies()
 
     try:
         loop = asyncio.new_event_loop()
         try:
-            results = loop.run_until_complete(check_cards_batch(cards, sites, proxies))
+            results = loop.run_until_complete(check_cards_batch(cards, sites, proxies, concurrency=concurrency))
         finally:
             loop.close()
         return jsonify({'results': results})
@@ -420,14 +429,23 @@ def api_check_batch():
 
 @app.route('/api/check', methods=['POST'])
 def api_check():
-    data = request.json
+    data = request.json or {}
     cards_text = data.get('cards', '')
     cards = parse_cards(cards_text)
     if not cards:
         return jsonify({'error': 'No valid cards found'}), 400
 
+    # Extract user-specific proxies (no longer fallback to global DB)
+    proxies = data.get('proxies', [])
+
+    # Extract custom concurrency/semaphore
+    concurrency = data.get('concurrency') or data.get('semaphore') or 1000
+    try:
+        concurrency = int(concurrency)
+    except:
+        concurrency = 1000
+
     sites = get_sites()
-    proxies = get_proxies()
 
     def generate():
         all_results = []
@@ -436,12 +454,14 @@ def api_check():
             batch_size = 200
             for i in range(0, len(cards), batch_size):
                 batch = cards[i:i+batch_size]
-                batch_results = loop.run_until_complete(check_cards_batch(batch, sites, proxies))
+                batch_results = loop.run_until_complete(check_cards_batch(batch, sites, proxies, concurrency=concurrency))
                 all_results.extend(batch_results)
                 stats = {
                     'total': len(all_results),
                     'done': len(all_results),
+                    'charged': sum(1 for r in all_results if r['status'] == 'CHARGED'),
                     'live': sum(1 for r in all_results if r['status'] == 'LIVE'),
+                    'fraud': sum(1 for r in all_results if r['status'] == 'FRAUD'),
                     'dead': sum(1 for r in all_results if r['status'] == 'DEAD'),
                     'error': sum(1 for r in all_results if r['status'] in ('ERROR', 'TIMEOUT', 'EXCEPTION')),
                     'low_balance': sum(1 for r in all_results if r['status'] == 'LOW_BALANCE'),
@@ -469,8 +489,24 @@ def api_check_upload():
     if not cards:
         return jsonify({'error': 'No valid cards found in file'}), 400
 
+    # Extract user-specific proxies from form data
+    proxies_raw = request.form.get('proxies', '')
+    if proxies_raw:
+        try:
+            proxies = json.loads(proxies_raw)
+        except:
+            proxies = [p.strip() for p in proxies_raw.split('\n') if p.strip()]
+    else:
+        proxies = []
+
+    # Extract custom concurrency/semaphore from form data
+    concurrency = request.form.get('concurrency') or request.form.get('semaphore') or 1000
+    try:
+        concurrency = int(concurrency)
+    except:
+        concurrency = 1000
+
     sites = get_sites()
-    proxies = get_proxies()
 
     def generate():
         all_results = []
@@ -479,12 +515,14 @@ def api_check_upload():
             batch_size = 200
             for i in range(0, len(cards), batch_size):
                 batch = cards[i:i+batch_size]
-                batch_results = loop.run_until_complete(check_cards_batch(batch, sites, proxies))
+                batch_results = loop.run_until_complete(check_cards_batch(batch, sites, proxies, concurrency=concurrency))
                 all_results.extend(batch_results)
                 stats = {
                     'total': len(all_results),
                     'done': len(all_results),
+                    'charged': sum(1 for r in all_results if r['status'] == 'CHARGED'),
                     'live': sum(1 for r in all_results if r['status'] == 'LIVE'),
+                    'fraud': sum(1 for r in all_results if r['status'] == 'FRAUD'),
                     'dead': sum(1 for r in all_results if r['status'] == 'DEAD'),
                     'error': sum(1 for r in all_results if r['status'] in ('ERROR', 'TIMEOUT', 'EXCEPTION')),
                     'low_balance': sum(1 for r in all_results if r['status'] == 'LOW_BALANCE'),
