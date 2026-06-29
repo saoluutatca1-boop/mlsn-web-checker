@@ -1203,6 +1203,12 @@ function finishCheck() {
     } else {
         noti(`Job complete: ${allResults.length} processed`);
     }
+
+    // Auto-clear input data after checking is complete
+    document.getElementById('ci').value = '';
+    document.getElementById('fi2').innerHTML = '';
+    document.getElementById('fi').value = '';
+    upFile = null;
     
     setTimeout(() => {
         document.getElementById('pb').classList.remove('active');
