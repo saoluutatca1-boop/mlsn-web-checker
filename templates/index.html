@@ -136,17 +136,20 @@
         }
 
         .card-panel {
-            background-color: var(--bg-panel);
+            background-color: rgba(13, 18, 23, 0.45);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 20px;
             display: flex;
             flex-direction: column;
-            transition: border-color 0.2s;
+            transition: border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .card-panel:hover {
-            border-color: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.12);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
         }
 
         .panel-title {
@@ -437,12 +440,19 @@
 
         /* Main Console Panel */
         .console-panel {
-            background-color: var(--bg-panel);
+            background-color: rgba(13, 18, 23, 0.45);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
             border: 1px solid var(--border-color);
             border-radius: 8px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            transition: border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .console-panel:hover {
+            border-color: rgba(255, 255, 255, 0.1);
         }
 
         .console-header {
@@ -606,6 +616,22 @@
 
         .log-row:hover {
             background-color: rgba(255, 255, 255, 0.015);
+        }
+
+        @keyframes slideUpFade {
+            from {
+                opacity: 0;
+                transform: translateY(4px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .log-row.animate-row {
+            animation: slideUpFade 0.2s cubic-bezier(0.215, 0.61, 0.355, 1) forwards;
+            will-change: transform, opacity;
         }
 
         .log-time {
@@ -1112,7 +1138,7 @@ async function processQueue() {
             currentStats.total = cardsToProcess.length;
             updateStatsAndCounters(currentStats);
             
-            renderResults();
+            appendBatchResults(results);
             
             const pct = Math.round((allResults.length / cardsToProcess.length) * 100);
             document.getElementById('pf').style.width = pct + '%';
@@ -1219,6 +1245,33 @@ function updateProgressStatus(txt) {
     document.getElementById('progress-status').textContent = txt.toUpperCase();
 }
 
+function renderSingleRowHtml(r) {
+    const timeVal = r.timestamp || '--:--:--';
+    const cardVal = esc(r.card);
+    const msgVal = esc(r.msg);
+    const gateVal = esc(r.gateway || 'Shopify');
+    const priceVal = esc(r.price || '-');
+    const siteVal = esc(r.site || '-');
+    
+    let displayStatus = r.status;
+    if (displayStatus === 'OTP_REQUIRED') displayStatus = '3DS';
+    if (displayStatus === 'LOW_BALANCE') displayStatus = 'LOW';
+    
+    const priceClass = r.status === 'LIVE' || r.status === 'CHARGED' || r.status === 'LOW_BALANCE' ? 'live' : '';
+    
+    return `
+        <div class="log-row animate-row">
+            <span class="log-time">[${timeVal}]</span>
+            <span class="log-status ${r.status}">[${displayStatus}]</span>
+            <span class="log-card">${cardVal}</span>
+            <span class="log-msg">&gt; ${msgVal}</span>
+            <span class="log-price ${priceClass}">${priceVal}</span>
+            <span class="log-gateway">${gateVal}</span>
+            <span class="log-site">${siteVal}</span>
+        </div>
+    `;
+}
+
 function renderResults() {
     const listEl = document.getElementById('rl');
     const filtered = activeFilter ? allResults.filter(r => {
@@ -1231,32 +1284,27 @@ function renderResults() {
         return;
     }
     
-    listEl.innerHTML = filtered.map(r => {
-        const timeVal = r.timestamp || '--:--:--';
-        const cardVal = esc(r.card);
-        const msgVal = esc(r.msg);
-        const gateVal = esc(r.gateway || 'Shopify');
-        const priceVal = esc(r.price || '-');
-        const siteVal = esc(r.site || '-');
-        
-        let displayStatus = r.status;
-        if (displayStatus === 'OTP_REQUIRED') displayStatus = '3DS';
-        if (displayStatus === 'LOW_BALANCE') displayStatus = 'LOW';
-        
-        const priceClass = r.status === 'LIVE' || r.status === 'CHARGED' || r.status === 'LOW_BALANCE' ? 'live' : '';
-        
-        return `
-            <div class="log-row">
-                <span class="log-time">[${timeVal}]</span>
-                <span class="log-status ${r.status}">[${displayStatus}]</span>
-                <span class="log-card">${cardVal}</span>
-                <span class="log-msg">&gt; ${msgVal}</span>
-                <span class="log-price ${priceClass}">${priceVal}</span>
-                <span class="log-gateway">${gateVal}</span>
-                <span class="log-site">${siteVal}</span>
-            </div>
-        `;
-    }).join('');
+    listEl.innerHTML = filtered.map(r => renderSingleRowHtml(r)).join('');
+}
+
+function appendBatchResults(newResults) {
+    const listEl = document.getElementById('rl');
+    
+    if (listEl.querySelector('.empty-console')) {
+        listEl.innerHTML = '';
+    }
+    
+    const filtered = activeFilter ? newResults.filter(r => {
+        if (activeFilter === 'ERR') return ['ERROR', 'TIMEOUT', 'EXCEPTION'].includes(r.status);
+        return r.status === activeFilter;
+    }) : newResults;
+    
+    if (filtered.length === 0) return;
+    
+    const html = filtered.map(r => renderSingleRowHtml(r)).join('');
+    listEl.insertAdjacentHTML('beforeend', html);
+    
+    listEl.scrollTop = listEl.scrollHeight;
 }
 
 function filterR(f) {
