@@ -477,8 +477,8 @@ def api_check():
     if not cards:
         return jsonify({'error': 'No valid cards found'}), 400
     
-    if len(cards) > 50:
-        return jsonify({'error': 'Maximum 50 cards per request'}), 400
+    if len(cards) > 200:
+        return jsonify({'error': 'Maximum 200 cards per request'}), 400
     
     sites = get_sites()
     proxies = get_proxies()
@@ -516,8 +516,8 @@ def api_check_upload():
     if not cards:
         return jsonify({'error': 'No valid cards found in file'}), 400
     
-    if len(cards) > 50:
-        return jsonify({'error': 'Maximum 50 cards per request'}), 400
+    if len(cards) > 200:
+        return jsonify({'error': 'Maximum 200 cards per request'}), 400
     
     sites = get_sites()
     proxies = get_proxies()
