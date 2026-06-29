@@ -7,7 +7,7 @@ import asyncio
 import aiohttp
 import psycopg2
 import psycopg2.pool
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 from dotenv import load_dotenv
 from collections import deque
 
@@ -378,21 +378,31 @@ def api_check():
     sites = get_sites()
     proxies = get_proxies()
 
-    loop = asyncio.new_event_loop()
-    try:
-        results = loop.run_until_complete(check_cards_batch(cards, sites, proxies))
-    finally:
-        loop.close()
+    def generate():
+        all_results = []
+        loop = asyncio.new_event_loop()
+        try:
+            batch_size = 500
+            for i in range(0, len(cards), batch_size):
+                batch = cards[i:i+batch_size]
+                batch_results = loop.run_until_complete(check_cards_batch(batch, sites, proxies))
+                all_results.extend(batch_results)
+                stats = {
+                    'total': len(all_results),
+                    'done': len(all_results),
+                    'live': sum(1 for r in all_results if r['status'] == 'LIVE'),
+                    'dead': sum(1 for r in all_results if r['status'] == 'DEAD'),
+                    'error': sum(1 for r in all_results if r['status'] in ('ERROR', 'TIMEOUT', 'EXCEPTION')),
+                    'low_balance': sum(1 for r in all_results if r['status'] == 'LOW_BALANCE'),
+                    'otp': sum(1 for r in all_results if r['status'] == 'OTP_REQUIRED'),
+                }
+                yield f"data: {json.dumps({'type': 'batch', 'results': batch_results, 'stats': stats, 'total_cards': len(cards)})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'stats': stats, 'total_cards': len(cards)})}\n\n"
+        finally:
+            loop.close()
 
-    stats = {
-        'total': len(results),
-        'live': sum(1 for r in results if r['status'] == 'LIVE'),
-        'dead': sum(1 for r in results if r['status'] == 'DEAD'),
-        'error': sum(1 for r in results if r['status'] in ('ERROR', 'TIMEOUT', 'EXCEPTION')),
-        'low_balance': sum(1 for r in results if r['status'] == 'LOW_BALANCE'),
-        'otp': sum(1 for r in results if r['status'] == 'OTP_REQUIRED'),
-    }
-    return jsonify({'results': results, 'stats': stats})
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @app.route('/api/check/upload', methods=['POST'])
@@ -411,21 +421,31 @@ def api_check_upload():
     sites = get_sites()
     proxies = get_proxies()
 
-    loop = asyncio.new_event_loop()
-    try:
-        results = loop.run_until_complete(check_cards_batch(cards, sites, proxies))
-    finally:
-        loop.close()
+    def generate():
+        all_results = []
+        loop = asyncio.new_event_loop()
+        try:
+            batch_size = 500
+            for i in range(0, len(cards), batch_size):
+                batch = cards[i:i+batch_size]
+                batch_results = loop.run_until_complete(check_cards_batch(batch, sites, proxies))
+                all_results.extend(batch_results)
+                stats = {
+                    'total': len(all_results),
+                    'done': len(all_results),
+                    'live': sum(1 for r in all_results if r['status'] == 'LIVE'),
+                    'dead': sum(1 for r in all_results if r['status'] == 'DEAD'),
+                    'error': sum(1 for r in all_results if r['status'] in ('ERROR', 'TIMEOUT', 'EXCEPTION')),
+                    'low_balance': sum(1 for r in all_results if r['status'] == 'LOW_BALANCE'),
+                    'otp': sum(1 for r in all_results if r['status'] == 'OTP_REQUIRED'),
+                }
+                yield f"data: {json.dumps({'type': 'batch', 'results': batch_results, 'stats': stats, 'total_cards': len(cards)})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'stats': stats, 'total_cards': len(cards)})}\n\n"
+        finally:
+            loop.close()
 
-    stats = {
-        'total': len(results),
-        'live': sum(1 for r in results if r['status'] == 'LIVE'),
-        'dead': sum(1 for r in results if r['status'] == 'DEAD'),
-        'error': sum(1 for r in results if r['status'] in ('ERROR', 'TIMEOUT', 'EXCEPTION')),
-        'low_balance': sum(1 for r in results if r['status'] == 'LOW_BALANCE'),
-        'otp': sum(1 for r in results if r['status'] == 'OTP_REQUIRED'),
-    }
-    return jsonify({'results': results, 'stats': stats})
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 @app.route('/api/stats', methods=['GET'])

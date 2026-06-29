@@ -43,12 +43,13 @@
         .full{grid-column:1/-1}
         .rheader{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px}
         .rbadges{display:flex;gap:6px;flex-wrap:wrap}
-        .rb{padding:4px 10px;border-radius:6px;font-size:.72rem;font-weight:600}
+        .rb{padding:4px 10px;border-radius:6px;font-size:.72rem;font-weight:600;cursor:pointer;transition:.15s}
         .rb.live{background:rgba(34,197,94,.12);color:#22c55e}
         .rb.dead{background:rgba(239,68,68,.12);color:#ef4444}
         .rb.err{background:rgba(234,179,8,.12);color:#eab308}
         .rb.otp{background:rgba(59,130,246,.12);color:#3b82f6}
         .rb.low{background:rgba(168,85,247,.12);color:#a855f7}
+        .rb.sel{outline:2px solid rgba(255,255,255,.3);outline-offset:-2px;cursor:pointer}
         .rlist{max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
         .rlist::-webkit-scrollbar{width:5px}
         .rlist::-webkit-scrollbar-track{background:transparent}
@@ -168,32 +169,70 @@
     <footer>MLSN Web Checker</footer>
 </div>
 <script>
-let mode='sac',upFile=null;
+let mode='sac',upFile=null,allResults=[],activeFilter=null;
 function setM(b,m){mode=m;document.querySelectorAll('.mbtn').forEach(x=>x.classList.remove('on'));b.classList.add('on')}
 async function stats(){try{const r=await fetch('/api/stats');const d=await r.json();document.getElementById('sS').textContent=d.sites_count;document.getElementById('sP').textContent=d.proxies_count;document.getElementById('sA').textContent='Online';document.getElementById('sA').style.color='#22c55e';document.getElementById('sli').textContent=d.sites_count+' sites loaded';document.getElementById('pli').textContent=d.proxies_count+' proxies loaded'}catch(e){document.getElementById('sA').textContent='Error';document.getElementById('sA').style.color='#ef4444'}}
-async function go(){
+function go(){
     const cards=document.getElementById('ci').value.trim();
     const btn=document.getElementById('cb');
     if(!cards&&!upFile){noti('No cards',1);return}
     btn.classList.add('load');btn.disabled=true;
     document.getElementById('pb').classList.add('on');document.getElementById('pf').style.width='0%';
     document.getElementById('rp').style.display='block';document.getElementById('rl').innerHTML='';
-    try{
-        let r;
-        if(upFile){const fd=new FormData();fd.append('file',upFile);fd.append('mode',mode);r=await fetch('/api/check/upload',{method:'POST',body:fd})}
-        else{r=await fetch('/api/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cards,mode})})}
-        const d=await r.json();
-        if(d.error){noti(d.error,1);return}
+    allResults=[];activeFilter=null;
+
+    let es;
+    if(upFile){
+        const fd=new FormData();fd.append('file',upFile);fd.append('mode',mode);
+        fetch('/api/check/upload',{method:'POST',body:fd}).then(r=>{es=new EventSource('/api/check/upload');}).catch(()=>{});
+        const fd2=new FormData();fd2.append('file',upFile);fd2.append('mode',mode);
+        fetch('/api/check/upload',{method:'POST',body:fd2}).then(r=>r.text()).then(t=>{
+            const lines=t.split('\n').filter(l=>l.startsWith('data: '));
+            lines.forEach(l=>{try{handleMsg(JSON.parse(l.slice(6)))}catch(e){}});
+        });
+    }else{
+        fetch('/api/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cards,mode})}).then(r=>{
+            const reader=r.body.getReader();const dec=new TextDecoder();let buf='';
+            function read(){reader.read().then(({done,value})=>{
+                if(done){finish();return}
+                buf+=dec.decode(value,{stream:true});
+                const parts=buf.split('\n\n');buf=parts.pop();
+                parts.forEach(p=>{const m=p.trim();if(m.startsWith('data: '))try{handleMsg(JSON.parse(m.slice(6)))}catch(e){}});
+                read();
+            })}
+            read();
+        });
+    }
+}
+function handleMsg(d){
+    if(d.type==='batch'){
+        allResults=allResults.concat(d.results);
+        const pct=Math.round((d.done/d.total_cards)*100);
+        document.getElementById('pf').style.width=pct+'%';
+        showR(d.stats);
+    }else if(d.type==='done'){
         document.getElementById('pf').style.width='100%';
-        showR(d.results,d.stats);
-        noti('Checked '+d.stats.total+' cards');
-    }catch(e){noti('Error: '+e.message,1)}
-    finally{btn.classList.remove('load');btn.disabled=false;setTimeout(()=>document.getElementById('pb').classList.remove('on'),400)}
+        showR(d.stats);
+        noti('Done: '+d.stats.total+' cards');
+        document.getElementById('cb').classList.remove('load');document.getElementById('cb').disabled=false;
+        setTimeout(()=>document.getElementById('pb').classList.remove('on'),400);
+    }
 }
-function showR(res,st){
-    document.getElementById('rs').innerHTML=`<span class="rb live">LIVE ${st.live}</span><span class="rb dead">DEAD ${st.dead}</span><span class="rb otp">OTP ${st.otp}</span><span class="rb low">LOW ${st.low_balance}</span><span class="rb err">ERR ${st.error}</span>`;
-    document.getElementById('rl').innerHTML=res.map((r,i)=>`<div class="ri ${r.status}" style="animation-delay:${i*30}ms"><div class="em">${r.emoji}</div><div class="info"><div class="cc">${esc(r.card)}</div><div class="det"><span class="sb ${r.status}">${r.status}</span>${esc(r.msg)}</div><div class="det" style="margin-top:2px;color:#374151;font-size:.68rem">${esc(r.gateway)} | ${esc(r.receipt_id)} | ${esc(r.time)}s</div></div><div class="meta"><div class="price">${esc(r.price)}</div><div class="site">${esc(r.site)}</div></div></div>`).join('');
+function showR(st){
+    document.getElementById('rs').innerHTML=`
+        <span class="rb live${activeFilter==='LIVE'?' sel':''}" onclick="filterR('LIVE')">LIVE ${st.live}</span>
+        <span class="rb dead${activeFilter==='DEAD'?' sel':''}" onclick="filterR('DEAD')">DEAD ${st.dead}</span>
+        <span class="rb otp${activeFilter==='OTP_REQUIRED'?' sel':''}" onclick="filterR('OTP_REQUIRED')">OTP ${st.otp}</span>
+        <span class="rb low${activeFilter==='LOW_BALANCE'?' sel':''}" onclick="filterR('LOW_BALANCE')">LOW ${st.low_balance}</span>
+        <span class="rb err${activeFilter==='ERR'?' sel':''}" onclick="filterR('ERR')">ERR ${st.error}</span>
+        <span class="rb${activeFilter===null?' sel':''}" onclick="filterR(null)">ALL ${st.total||allResults.length}</span>`;
+    const filtered=activeFilter?allResults.filter(r=>{
+        if(activeFilter==='ERR')return r.status==='ERROR'||r.status==='TIMEOUT'||r.status==='EXCEPTION';
+        return r.status===activeFilter;
+    }):allResults;
+    document.getElementById('rl').innerHTML=filtered.map((r,i)=>`<div class="ri ${r.status}"><div class="em">${r.emoji}</div><div class="info"><div class="cc">${esc(r.card)}</div><div class="det"><span class="sb ${r.status}">${r.status}</span>${esc(r.msg)}</div><div class="det" style="margin-top:2px;color:#374151;font-size:.68rem">${esc(r.gateway)} | ${esc(r.receipt_id)} | ${esc(r.time)}s</div></div><div class="meta"><div class="price">${esc(r.price)}</div><div class="site">${esc(r.site)}</div></div></div>`).join('');
 }
+function filterR(f){activeFilter=f;showR({live:allResults.filter(r=>r.status==='LIVE').length,dead:allResults.filter(r=>r.status==='DEAD').length,otp:allResults.filter(r=>r.status==='OTP_REQUIRED').length,low_balance:allResults.filter(r=>r.status==='LOW_BALANCE').length,error:allResults.filter(r=>['ERROR','TIMEOUT','EXCEPTION'].includes(r.status)).length,total:allResults.length})}
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
 function noti(m,e){const n=document.createElement('div');n.className='noti '+(e?'err':'ok');n.textContent=m;document.body.appendChild(n);setTimeout(()=>n.remove(),3000)}
 const dz=document.getElementById('dz'),fi=document.getElementById('fi');
