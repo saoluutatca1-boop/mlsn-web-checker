@@ -647,6 +647,7 @@ var (
 	recentProxiesMu  sync.Mutex
 
 	fileLock sync.Mutex
+	proxyModifyMu sync.Mutex
 
 	cardReg1 = regexp.MustCompile(`(\d{13,19})\s*[|/]\s*(\d{1,2})\s*[|/]\s*(\d{2,4})\s*[|/]\s*(\d{3,4})`)
 	cardReg2 = regexp.MustCompile(`(\d{13,19})\s+(\d{1,2})\s+(\d{2,4})\s+(\d{3,4})`)
@@ -2261,6 +2262,31 @@ func dbDeleteProxy(proxy string) {
 	_, _ = db.Exec("DELETE FROM proxies WHERE proxy = $1", proxy)
 }
 
+func deleteProxyGlobally(proxy string) {
+	proxyModifyMu.Lock()
+	defer proxyModifyMu.Unlock()
+
+	dbDeleteProxy(proxy)
+
+	fileProxies := loadFile(PROXIES_FILE)
+	var newProxies []string
+	changed := false
+	for _, p := range fileProxies {
+		if p != proxy {
+			newProxies = append(newProxies, p)
+		} else {
+			changed = true
+		}
+	}
+	if changed {
+		saveFile(PROXIES_FILE, newProxies)
+	}
+
+	dbCacheMu.Lock()
+	dbProxiesCache = nil
+	dbCacheMu.Unlock()
+}
+
 func apiAdminAddSiteHandler(w http.ResponseWriter, r *http.Request) {
 	var reqData struct {
 		URL string `json:"url"`
@@ -2382,20 +2408,7 @@ func apiAdminDeleteProxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileProxies := loadFile(PROXIES_FILE)
-	var newProxies []string
-	for _, p := range fileProxies {
-		if p != proxy {
-			newProxies = append(newProxies, p)
-		}
-	}
-	saveFile(PROXIES_FILE, newProxies)
-
-	dbDeleteProxy(proxy)
-
-	dbCacheMu.Lock()
-	dbProxiesCache = nil
-	dbCacheMu.Unlock()
+	deleteProxyGlobally(proxy)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
@@ -3156,6 +3169,7 @@ func apiProxiesTestHandler(w http.ResponseWriter, r *http.Request) {
 					Error: err.Error(),
 				}
 				GetProxyManager().RecordResult(p, 0, false)
+				deleteProxyGlobally(p) // Auto-delete dead proxy
 			} else {
 				results[idx] = TestResult{
 					Proxy: p,

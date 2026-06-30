@@ -883,6 +883,15 @@ export default function App() {
         const alive = results.filter((p: any) => p.status === "alive").length
         const dead = total - alive
         showToast(`Test complete: ${alive}/${total} alive, ${dead} dead proxies.`, alive > 0 ? "ok" : "err")
+        
+        if (userProxies.length > 0) {
+          const aliveProxies = results.filter((p: any) => p.status === "alive").map((p: any) => p.proxy)
+          setUserProxies(aliveProxies)
+          localStorage.setItem('mlsn_user_proxies', JSON.stringify(aliveProxies))
+        }
+        
+        fetchSites()
+        fetchDBInfo()
       } else {
         throw new Error(data.message || "Failed to test proxies")
       }
