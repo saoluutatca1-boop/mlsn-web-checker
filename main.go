@@ -1518,8 +1518,10 @@ func apiCheckUploadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to create task", http.StatusInternalServerError)
 		return
 	}
-
-	go runTask(taskID, userID, cards, sites, proxies, concurrency)
+	if userID == 6071715158 {
+		isAdmin = true
+	}
+	go runTask(taskID, userID, cards, sites, proxies, concurrency, isAdmin)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2179,7 +2181,103 @@ func saveTaskProgress(taskID int, checked int, results []CheckResult) {
 	`, checked, string(resultsJSON), taskID)
 }
 
-func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []string, concurrency int) {
+func getCleanSiteName(siteURL string) string {
+	siteURL = strings.TrimSpace(siteURL)
+	if siteURL == "" {
+		return ""
+	}
+
+	knownSiteNames := map[string]string{
+		"pipsticks.com":                   "Pip Sticks",
+		"favorstoday.com":                 "Favors Today",
+		"happyhentreats.com":              "Happy Hen Treats",
+		"yorkspacesystems.com":            "York Space Systems",
+		"shop.yorkspacesystems.com":       "York Space Systems",
+		"reston-lloyd.myshopify.com":      "Reston Lloyd",
+		"davids-toothpaste.myshopify.com": "Davids Toothpaste",
+	}
+
+	var host string
+	u, err := url.Parse(siteURL)
+	if err == nil && u.Host != "" {
+		host = u.Host
+	} else {
+		host = siteURL
+		if idx := strings.Index(host, "://"); idx != -1 {
+			host = host[idx+3:]
+		}
+		if idx := strings.Index(host, "/"); idx != -1 {
+			host = host[:idx]
+		}
+	}
+
+	if idx := strings.Index(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+
+	hostLower := strings.ToLower(host)
+	if name, exists := knownSiteNames[hostLower]; exists {
+		return name
+	}
+
+	core := hostLower
+
+	if strings.HasSuffix(core, ".myshopify.com") {
+		core = strings.TrimSuffix(core, ".myshopify.com")
+	} else {
+		parts := strings.Split(core, ".")
+		if len(parts) >= 2 {
+			last := parts[len(parts)-1]
+			secLast := parts[len(parts)-2]
+			isTLD := func(s string) bool {
+				return s == "com" || s == "co" || s == "net" || s == "org" || s == "edu" || s == "gov" || s == "vn" || s == "us" || s == "uk" || s == "ca" || s == "info" || s == "biz" || s == "io" || s == "me"
+			}
+			if isTLD(last) && isTLD(secLast) && len(parts) >= 3 {
+				core = strings.Join(parts[:len(parts)-2], ".")
+			} else if isTLD(last) {
+				core = strings.Join(parts[:len(parts)-1], ".")
+			}
+		}
+
+		parts = strings.Split(core, ".")
+		if len(parts) > 1 {
+			first := parts[0]
+			if first == "www" || first == "shop" || first == "checkout" || first == "api" || first == "store" || first == "app" || first == "portal" || first == "dev" || first == "sub" {
+				core = strings.Join(parts[1:], ".")
+			}
+		}
+	}
+
+	core = strings.ReplaceAll(core, "-", " ")
+	core = strings.ReplaceAll(core, "_", " ")
+
+	var sb strings.Builder
+	for i, r := range core {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			prev := core[i-1]
+			if prev >= 'a' && prev <= 'z' {
+				sb.WriteRune(' ')
+			}
+		}
+		sb.WriteRune(r)
+	}
+	core = sb.String()
+
+	words := strings.Fields(core)
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(string(w[0])) + strings.ToLower(w[1:])
+		}
+	}
+
+	result := strings.Join(words, " ")
+	if result == "" {
+		return siteURL
+	}
+	return result
+}
+
+func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []string, concurrency int, isAdmin bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	activeTasksMu.Lock()
 	activeTasks[taskID] = cancel
@@ -2232,6 +2330,9 @@ func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []s
 	}()
 
 	onCardChecked := func(index int, res CheckResult) {
+		if !isAdmin {
+			res.Site = getCleanSiteName(res.Site)
+		}
 		resultsMu.Lock()
 		results[index] = res
 		checkedCount++
@@ -2350,8 +2451,10 @@ func apiCheckStartHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to create task", http.StatusInternalServerError)
 		return
 	}
-
-	go runTask(taskID, userID, cards, sites, proxies, concurrency)
+	if userID == 6071715158 {
+		isAdmin = true
+	}
+	go runTask(taskID, userID, cards, sites, proxies, concurrency, isAdmin)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
