@@ -47,6 +47,41 @@ interface Toast {
   type: 'ok' | 'err'
 }
 
+const Logo = ({ size = 'md', className = '' }: { size?: 'sm' | 'md' | 'lg', className?: string }) => {
+  const textSvgStyles = {
+    sm: 'h-[16px] w-[61px]',
+    md: 'h-[20px] w-[76px]',
+    lg: 'h-[28px] w-[106px]'
+  }
+
+  return (
+    <div className={`flex items-center gap-2 select-none ${className}`}>
+      {/* Text Logotype: Custom SVG Stencil letters matching MIMO */}
+      <div className="flex items-center gap-2">
+        <svg className={`text-white ${textSvgStyles[size]}`} viewBox="0 0 182 48" fill="none" stroke="currentColor" strokeWidth="5.5" strokeLinecap="round" strokeLinejoin="round">
+          {/* M */}
+          <path d="M 10 40 L 10 8" />
+          <path d="M 18 19 L 26 30 L 42 8 L 42 40" strokeLinejoin="round" />
+          
+          {/* L */}
+          <path d="M 62 8 L 62 40 L 82 40" strokeLinejoin="round" />
+          
+          {/* S */}
+          <path d="M 120 9 L 102 9 L 102 23 L 110 23" strokeLinejoin="round" />
+          <path d="M 112 25 L 120 25 L 120 39 L 102 39" strokeLinejoin="round" />
+          
+          {/* N */}
+          <path d="M 140 40 L 140 8" />
+          <path d="M 148 16 L 172 40 L 172 8" strokeLinejoin="round" />
+        </svg>
+        
+        <span className={`font-tech font-light text-cyan-400 ${size === 'lg' ? 'text-xl' : size === 'md' ? 'text-sm' : 'text-xs'}`}>//</span>
+        <span className={`font-tech font-medium text-slate-400 ${size === 'lg' ? 'text-lg tracking-widest' : size === 'md' ? 'text-xs tracking-wider' : 'text-[10px] tracking-wide'}`}>ENGINE</span>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   // Navigation & Auth
   const [tab, setTab] = useState<'checker' | 'admin' | 'login'>(() => {
@@ -630,7 +665,7 @@ export default function App() {
   }) : results
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col md:flex-row selection:bg-cyan-500/30 selection:text-cyan-300 relative overflow-x-hidden">
+    <div className="min-h-screen bg-transparent text-slate-200 flex flex-col md:flex-row selection:bg-cyan-500/30 selection:text-cyan-300 relative overflow-x-hidden">
       {/* Background Gradients */}
       <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.012)_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
       <div className="absolute top-0 right-1/4 w-[600px] h-[600px] bg-cyan-500/5 blur-[160px] rounded-full pointer-events-none" />
@@ -659,14 +694,11 @@ export default function App() {
       {user && (
         <>
           {/* Mobile Sticky Header */}
-          <div className="flex md:hidden items-center justify-between px-5 py-3.5 bg-slate-950/80 backdrop-blur-md border-b border-slate-900/60 sticky top-0 z-30 w-full shrink-0">
-            <div className="flex items-center gap-2 font-mono font-bold text-sm tracking-wider text-white">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shrink-0 shadow-[0_0_8px_#00ffd1]" />
-              MLSN <span className="text-cyan-400">//</span> ENGINE
-            </div>
+          <div className="flex md:hidden items-center justify-between px-5 py-3.5 bg-slate-955/85 backdrop-blur-md border-b border-slate-900/60 sticky top-0 z-30 w-full shrink-0">
+            <Logo size="sm" />
             
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5 font-mono text-[10px] text-slate-400">
+              <div className="flex items-center gap-1.5 font-tech text-[10px] text-slate-400">
                 <span className={`w-1.5 h-1.5 rounded-full ${apiOnline ? 'bg-cyan-400 shadow-[0_0_6px_#00ffd1]' : 'bg-red-505'}`} />
                 <span>API</span>
               </div>
@@ -698,11 +730,8 @@ export default function App() {
             {/* Header: Logo */}
             <div className="flex items-center justify-between pb-5 border-b border-slate-900/60 mb-6 shrink-0">
               <div className="flex flex-col">
-                <div className="font-mono font-bold text-base tracking-wider text-white flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#00ffd1]" />
-                  MLSN SYSTEMS
-                </div>
-                <span className="font-mono text-[9px] text-slate-500 uppercase tracking-widest mt-1">WEB ENGINE CLIENT v1.4.0</span>
+                <Logo size="md" />
+                <span className="font-tech text-[8px] text-slate-500 uppercase tracking-widest mt-2 ml-1">WEB ENGINE CLIENT v1.4.0</span>
               </div>
               
               <button 
@@ -722,15 +751,15 @@ export default function App() {
                   window.history.pushState({}, '', '/');
                   setSidebarOpen(false);
                 }} 
-                className={`w-full px-4 py-3 rounded-xl font-mono text-xs font-bold transition-all duration-300 flex items-center gap-3 border relative overflow-hidden group ${
+                className={`w-full px-4 py-3.5 rounded-xl font-tech text-[10px] font-bold transition-all duration-300 flex items-center gap-3 border relative overflow-hidden group ${
                   tab === 'checker' 
-                    ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.08)]' 
-                    : 'bg-transparent border-transparent text-slate-400 hover:text-slate-255 hover:bg-slate-900/40 hover:border-slate-900/40'
+                    ? 'bg-white/10 border-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.04)]' 
+                    : 'bg-transparent border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/40 hover:border-slate-900/40'
                 }`}
               >
                 {/* Active Indicator Glow Pip */}
-                {tab === 'checker' && <span className="absolute left-0 top-3 bottom-3 w-1 bg-cyan-400 rounded-r-md" />}
-                <Terminal className="w-4 h-4 text-cyan-405 group-hover:scale-110 transition-transform" />
+                {tab === 'checker' && <span className="absolute left-0 top-3 bottom-3 w-1 bg-white rounded-r-md" />}
+                <Terminal className="w-4 h-4 text-slate-200 group-hover:scale-110 transition-transform" />
                 <span>RUNNER CHECKER</span>
               </button>
 
@@ -742,14 +771,14 @@ export default function App() {
                     window.history.pushState({}, '', '/vanlinh'); 
                     setSidebarOpen(false);
                   }} 
-                  className={`w-full px-4 py-3 rounded-xl font-mono text-xs font-bold transition-all duration-300 flex items-center gap-3 border relative overflow-hidden group ${
+                  className={`w-full px-4 py-3.5 rounded-xl font-tech text-[10px] font-bold transition-all duration-300 flex items-center gap-3 border relative overflow-hidden group ${
                     tab === 'admin' 
-                      ? 'bg-purple-500/10 border-purple-500/30 text-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.08)]' 
-                      : 'bg-transparent border-transparent text-slate-400 hover:text-slate-255 hover:bg-slate-900/40 hover:border-slate-900/40'
+                      ? 'bg-white/10 border-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.04)]' 
+                      : 'bg-transparent border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/40 hover:border-slate-900/40'
                   }`}
                 >
-                  {tab === 'admin' && <span className="absolute left-0 top-3 bottom-3 w-1 bg-purple-400 rounded-r-md" />}
-                  <Database className="w-4 h-4 text-purple-405 group-hover:scale-110 transition-transform" />
+                  {tab === 'admin' && <span className="absolute left-0 top-3 bottom-3 w-1 bg-white rounded-r-md" />}
+                  <Database className="w-4 h-4 text-slate-200 group-hover:scale-110 transition-transform" />
                   <span>DATABASE POOLS</span>
                 </button>
               )}
@@ -762,8 +791,8 @@ export default function App() {
                 <div className="flex items-center justify-between text-slate-400 border-b border-slate-900/30 pb-1.5 mb-1.5">
                   <span className="uppercase tracking-wider text-[8px] font-bold text-slate-500">System Monitors</span>
                   <span className="flex items-center gap-1">
-                    <span className={`w-1.5 h-1.5 rounded-full ${apiOnline ? 'bg-cyan-400 animate-pulse shadow-[0_0_6px_#00ffd1]' : 'bg-red-500'}`} />
-                    <span className={apiOnline ? 'text-cyan-400' : 'text-red-400'}>{apiOnline ? 'ONLINE' : 'OFFLINE'}</span>
+                    <span className={`w-1.5 h-1.5 rounded-full ${apiOnline ? 'bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`} />
+                    <span className={apiOnline ? 'text-emerald-400' : 'text-red-400'}>{apiOnline ? 'ONLINE' : 'OFFLINE'}</span>
                   </span>
                 </div>
                 
@@ -811,16 +840,14 @@ export default function App() {
         {/* Tab: LOGIN */}
         {tab === 'login' && (
           <div className="w-full flex flex-col gap-6 animate-slide-up">
-            <div className="text-center flex flex-col gap-2">
-              <div className="font-mono font-bold text-2xl tracking-widest text-white">
-                MLSN <span className="text-cyan-400">//</span> AUTHENTICATION
-              </div>
-              <p className="text-xs text-slate-400 font-mono">Access requires secure authorization credentials</p>
+            <div className="text-center flex flex-col gap-2.5 items-center">
+              <Logo size="lg" className="justify-center" />
+              <p className="text-[9.5px] tracking-wider text-slate-400 font-tech mt-1 uppercase">AUTHENTICATION REQUIRED</p>
             </div>
 
             <div className="glass-panel rounded-2xl p-6 shadow-2xl flex flex-col gap-6 hover:border-slate-800/60 transition-all duration-300">
               {/* Tab selector */}
-              <div className="grid grid-cols-2 bg-slate-950/85 p-1.5 rounded-xl border border-slate-900 text-xs font-mono font-bold relative overflow-hidden select-none">
+              <div className="grid grid-cols-2 bg-slate-950/85 p-1.5 rounded-xl border border-slate-900 text-[10px] font-tech font-bold relative overflow-hidden select-none">
                 <div 
                   className={`absolute top-1.5 bottom-1.5 left-1.5 w-[calc(50%-6px)] rounded-lg transition-all duration-300 ease-out-back ${
                     activeLoginTab === 'telegram' 
@@ -948,14 +975,14 @@ export default function App() {
             <div className="flex flex-col gap-5">
               {/* Card Engine */}
               <div className="glass-panel glass-panel-glow-cyan rounded-2xl p-5 hover:border-slate-800/80 transition-all duration-300 flex flex-col gap-4">
-                <div className="font-mono text-xs font-bold text-slate-405 tracking-wider flex justify-between">
+                <div className="font-tech text-[10.5px] font-bold text-slate-400 tracking-wider flex justify-between">
                   <span>[01] CARD ENGINE</span>
                 </div>
                 
                 <div className="flex gap-2.5 items-center">
-                  <div className="grid grid-cols-2 bg-slate-950 border border-slate-900 p-1 rounded-xl text-[10px] font-mono font-bold flex-1 relative overflow-hidden select-none">
+                  <div className="grid grid-cols-2 bg-slate-950 border border-slate-900 p-1 rounded-xl text-[9px] font-tech font-bold flex-1 relative overflow-hidden select-none">
                     <div 
-                      className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-lg bg-cyan-500/10 border border-cyan-500/20 transition-all duration-300 ease-out-back ${
+                      className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-lg bg-white/10 border border-white/20 transition-all duration-300 ease-out-back ${
                         mode === 'sac' ? 'translate-x-0' : 'translate-x-full'
                       }`} 
                     />
@@ -963,7 +990,7 @@ export default function App() {
                     <button 
                       onClick={() => setMode('sac')}
                       className={`py-1.5 rounded-lg z-10 transition-all text-center ${
-                        mode === 'sac' ? 'text-cyan-400' : 'text-slate-500 hover:text-slate-400'
+                        mode === 'sac' ? 'text-white' : 'text-slate-500 hover:text-slate-400'
                       }`}
                     >
                       SAC SINGLE
@@ -971,22 +998,22 @@ export default function App() {
                     <button 
                       onClick={() => setMode('msac')}
                       className={`py-1.5 rounded-lg z-10 transition-all text-center ${
-                        mode === 'msac' ? 'text-cyan-400' : 'text-slate-500 hover:text-slate-400'
+                        mode === 'msac' ? 'text-white' : 'text-slate-500 hover:text-slate-400'
                       }`}
                     >
                       MSAC MASS
                     </button>
                   </div>
                   
-                  <div className="bg-slate-950 border border-slate-900 rounded-xl px-2.5 py-1.5 h-9 flex items-center justify-between gap-1 w-24 shrink-0 font-mono focus-within:border-cyan-500/40 transition-all">
-                    <span className="text-[9px] text-slate-500 tracking-tight uppercase">LIMIT</span>
+                  <div className="bg-slate-955/70 border border-slate-900 rounded-xl px-2.5 py-1.5 h-9 flex items-center justify-between gap-1.5 w-28 shrink-0 font-tech focus-within:border-white/25 transition-all">
+                    <span className="text-[9px] text-slate-500 tracking-tight uppercase font-bold">LIMIT</span>
                     <input 
                       type="number" 
                       value={concurrency}
                       onChange={(e) => setConcurrency(parseInt(e.target.value) || 1000)}
                       min="1" 
                       max="2000"
-                      className="bg-transparent border-none text-right outline-none text-cyan-400 text-xs font-bold w-12"
+                      className="bg-transparent border-none text-right outline-none text-white text-xs font-bold w-14"
                     />
                   </div>
                 </div>
@@ -1002,14 +1029,14 @@ export default function App() {
                     }
                   }}
                   disabled={isRunning}
-                  className="w-full h-36 bg-slate-955/65 border border-slate-900 rounded-xl p-3.5 font-mono text-[11px] text-slate-200 outline-none focus:border-cyan-500/40 resize-none transition-all placeholder:text-slate-600 disabled:opacity-50"
+                  className="w-full h-36 bg-slate-955/20 border border-slate-900/60 rounded-xl p-3.5 font-mono text-[11px] text-slate-200 outline-none focus:border-white/30 resize-none transition-all placeholder:text-slate-600 disabled:opacity-50"
                 />
 
                 <div className="flex gap-2">
                   {!isRunning ? (
                     <button 
                       onClick={runChecker}
-                      className="bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 font-mono text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all duration-300 hover:shadow-[0_0_20px_rgba(6,182,212,0.4)] active:scale-[0.98]"
+                      className="bg-white hover:bg-slate-250 text-slate-950 font-tech text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all duration-300 hover:shadow-[0_0_20px_rgba(255,255,255,0.12)] active:scale-[0.98]"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" /> RUN CHECKER
                     </button>
@@ -1017,7 +1044,7 @@ export default function App() {
                     <>
                       <button 
                         onClick={togglePauseChecking}
-                        className={`font-mono text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all border active:scale-[0.98] duration-200 ${
+                        className={`font-tech text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all border active:scale-[0.98] duration-200 ${
                           isPaused 
                             ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20' 
                             : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20'
@@ -1027,7 +1054,7 @@ export default function App() {
                       </button>
                       <button 
                         onClick={stopChecking}
-                        className="bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 font-mono text-xs font-bold py-3 rounded-xl shrink-0 px-4 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-200"
+                        className="bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 font-tech text-xs font-bold py-3 rounded-xl shrink-0 px-4 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-200"
                       >
                         <Square className="w-3.5 h-3.5 fill-current" /> STOP
                       </button>
@@ -1038,7 +1065,7 @@ export default function App() {
 
               {/* Bulk Source */}
               <div className="glass-panel glass-panel-glow-cyan rounded-2xl p-5 hover:border-slate-800/80 transition-all duration-300 flex flex-col gap-4">
-                <div className="font-mono text-xs font-bold text-slate-405 tracking-wider">
+                <div className="font-tech text-[10.5px] font-bold text-slate-400 tracking-wider">
                   <span>[02] BULK SOURCE</span>
                 </div>
                 
@@ -1047,13 +1074,13 @@ export default function App() {
                   onDragLeave={handleDragLeave}
                   onDrop={handleDrop}
                   onClick={() => document.getElementById('file-input')?.click()}
-                  className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 bg-slate-950/40 ${
+                  className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 bg-slate-955/40 ${
                     dragOver ? 'border-cyan-400 bg-cyan-500/10 shadow-[0_0_15px_rgba(6,182,212,0.1)] scale-[1.01]' : 'border-slate-900 hover:border-cyan-500/30 hover:bg-slate-900/20'
                   }`}
                 >
-                  <UploadCloud className="w-6 h-6 text-slate-500 mx-auto mb-2" />
-                  <div className="font-mono text-[10px] font-bold text-slate-300">DRAG & DROP CARDS FILE</div>
-                  <span className="font-mono text-[8px] text-slate-500 mt-1 block">Plain text .txt / .csv list</span>
+                  <UploadCloud className="w-6 h-6 text-slate-505 mx-auto mb-2" />
+                  <div className="font-tech text-[9.5px] font-bold text-slate-300">DRAG & DROP CARDS FILE</div>
+                  <span className="font-tech text-[8px] text-slate-500 mt-1 block">Plain text .txt / .csv list</span>
                   <input 
                     type="file" 
                     id="file-input" 
@@ -1064,7 +1091,7 @@ export default function App() {
                 </div>
                 
                 {uploadedFileName && (
-                  <div className="font-mono text-[10px] text-cyan-400 flex items-center justify-between bg-cyan-950/30 border border-cyan-500/20 px-3.5 py-2 rounded-xl animate-slide-up">
+                  <div className="font-tech text-[9px] font-bold text-cyan-400 flex items-center justify-between bg-cyan-950/30 border border-cyan-500/20 px-3.5 py-2 rounded-xl animate-slide-up">
                     <span>LOADED: <strong>{uploadedFileName.toUpperCase()}</strong></span>
                     <button 
                       onClick={() => {
@@ -1081,16 +1108,16 @@ export default function App() {
 
               {/* Data Pools */}
               <div className="glass-panel glass-panel-glow-cyan rounded-2xl p-5 hover:border-slate-800/80 transition-all duration-300 flex flex-col gap-4">
-                <div className="font-mono text-xs font-bold text-slate-400 tracking-wider">
+                <div className="font-tech text-[10.5px] font-bold text-slate-400 tracking-wider">
                   <span>[03] DATA POOLS</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   {/* Sites pool */}
-                  <div className="flex flex-col gap-2 font-mono">
+                  <div className="flex flex-col gap-2 font-tech">
                     <span className="text-[9px] uppercase tracking-wide text-slate-505 font-bold">SITES</span>
                     <div className="flex gap-1">
-                      <label className="flex-1 py-2 bg-slate-950 hover:bg-slate-900 border border-slate-900 rounded-lg text-[9px] font-bold text-slate-350 cursor-pointer flex items-center justify-center gap-1 transition-all active:scale-[0.98]">
+                      <label className="flex-1 py-2 bg-slate-950 hover:bg-slate-900 border border-slate-900 rounded-lg text-[8.5px] font-bold text-slate-350 cursor-pointer flex items-center justify-center gap-1 transition-all active:scale-[0.98]">
                         <Plus className="w-3 h-3" /> ADD
                         <input 
                           type="file" 
@@ -1101,31 +1128,31 @@ export default function App() {
                       </label>
                       <button 
                         onClick={clearSitesPool}
-                        className="py-2 px-2.5 bg-red-955/20 hover:bg-red-955/40 border border-red-955 text-red-400 rounded-lg text-[9px] font-bold flex items-center justify-center gap-1 transition-all active:scale-[0.98]"
+                        className="py-2 px-2.5 bg-red-955/20 hover:bg-red-955/40 border border-red-955 text-red-400 rounded-lg text-[8.5px] font-bold flex items-center justify-center gap-1 transition-all active:scale-[0.98]"
                       >
                         <X className="w-3 h-3" /> CLR
                       </button>
                     </div>
-                    <div className="bg-slate-955/65 border border-slate-900 rounded-xl p-3 text-[10px] text-slate-400 h-20 overflow-y-auto flex flex-col justify-center transition-all">
+                    <div className="bg-slate-950/20 border border-slate-900/60 rounded-xl p-3 text-[10px] text-slate-400 h-20 overflow-y-auto flex flex-col justify-center transition-all">
                       {statsData.sites_count > 0 ? (
                         <div className="flex flex-col gap-0.5">
-                          <div className="text-emerald-400 font-bold flex items-center gap-1">
+                          <div className="text-emerald-400 font-bold flex items-center gap-1 font-tech text-[9.5px]">
                             <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
                             {statsData.sites_count} SYNCED
                           </div>
-                          <span className="text-[8px] text-slate-500">Auto-Database Pool</span>
+                          <span className="text-[8px] text-slate-500 font-tech">Database Pool</span>
                         </div>
                       ) : (
-                        <div className="text-slate-600 italic text-center">EMPTY POOL</div>
+                        <div className="text-slate-600 italic text-center font-tech text-[9px]">EMPTY POOL</div>
                       )}
                     </div>
                   </div>
 
                   {/* Proxies pool */}
-                  <div className="flex flex-col gap-2 font-mono">
+                  <div className="flex flex-col gap-2 font-tech">
                     <span className="text-[9px] uppercase tracking-wide text-slate-505 font-bold">PROXIES</span>
                     <div className="flex gap-1">
-                      <label className="flex-1 py-2 bg-slate-950 hover:bg-slate-900 border border-slate-900 rounded-lg text-[9px] font-bold text-slate-350 cursor-pointer flex items-center justify-center gap-1 transition-all active:scale-[0.98]">
+                      <label className="flex-1 py-2 bg-slate-950 hover:bg-slate-900 border border-slate-900 rounded-lg text-[8.5px] font-bold text-slate-350 cursor-pointer flex items-center justify-center gap-1 transition-all active:scale-[0.98]">
                         <Plus className="w-3 h-3" /> ADD
                         <input 
                           type="file" 
@@ -1136,30 +1163,30 @@ export default function App() {
                       </label>
                       <button 
                         onClick={clearProxiesPool}
-                        className="py-2 px-2.5 bg-red-955/20 hover:bg-red-955/40 border border-red-955 text-red-400 rounded-lg text-[9px] font-bold flex items-center justify-center gap-1 transition-all active:scale-[0.98]"
+                        className="py-2 px-2.5 bg-red-955/20 hover:bg-red-955/40 border border-red-955 text-red-400 rounded-lg text-[8.5px] font-bold flex items-center justify-center gap-1 transition-all active:scale-[0.98]"
                       >
                         <X className="w-3 h-3" /> CLR
                       </button>
                     </div>
-                    <div className="bg-slate-955/65 border border-slate-900 rounded-xl p-3 text-[10px] text-slate-400 h-20 overflow-y-auto flex flex-col justify-center transition-all">
+                    <div className="bg-slate-950/20 border border-slate-900/60 rounded-xl p-3 text-[10px] text-slate-400 h-20 overflow-y-auto flex flex-col justify-center transition-all">
                       {userProxies.length > 0 ? (
                         <div className="flex flex-col gap-0.5">
-                          <div className="text-cyan-400 font-bold flex items-center gap-1">
+                          <div className="text-cyan-400 font-bold flex items-center gap-1 font-tech text-[9.5px]">
                             <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full" />
                             {userProxies.length} CUSTOM
                           </div>
-                          <span className="text-[8px] text-slate-500">Active Private List</span>
+                          <span className="text-[8px] text-slate-500 font-tech">Active Private List</span>
                         </div>
                       ) : statsData.proxies_count > 0 ? (
                         <div className="flex flex-col gap-0.5">
-                          <div className="text-emerald-400 font-bold flex items-center gap-1">
+                          <div className="text-emerald-400 font-bold flex items-center gap-1 font-tech text-[9.5px]">
                             <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
                             {statsData.proxies_count} SYNCED
                           </div>
-                          <span className="text-[8px] text-slate-500">Auto-Database Pool</span>
+                          <span className="text-[8px] text-slate-500 font-tech">Database Pool</span>
                         </div>
                       ) : (
-                        <div className="text-slate-600 italic text-center">0 ACTIVE (NO PROXY)</div>
+                        <div className="text-slate-600 italic text-center font-tech text-[9px]">0 ACTIVE (NO PROXY)</div>
                       )}
                     </div>
                   </div>
@@ -1170,26 +1197,26 @@ export default function App() {
             {/* Console Log Runner Panel */}
             <div className="glass-panel rounded-2xl flex flex-col overflow-hidden hover:border-slate-800/60 transition-all duration-300">
               <div className="px-5 py-4 bg-slate-950/80 border-b border-slate-900/80 flex justify-between items-center shrink-0">
-                <div className="font-mono text-xs font-bold text-white tracking-wider flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-cyan-400" /> RUNNER CONSOLE
+                <div className="font-tech text-[10.5px] font-bold text-white tracking-wider flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-slate-400" /> RUNNER CONSOLE
                 </div>
                 <button 
                   onClick={clearResults}
                   disabled={isRunning}
-                  className="py-2 px-3 bg-red-950/20 hover:bg-red-950/40 border border-red-950 disabled:opacity-30 disabled:pointer-events-none text-red-400 rounded-lg font-mono text-[9px] font-bold flex items-center gap-1.5 transition-all active:scale-[0.98]"
+                  className="py-2 px-3 bg-red-950/5 hover:bg-red-500/10 border border-red-950/30 hover:border-red-500/30 disabled:opacity-30 disabled:pointer-events-none text-red-400/80 hover:text-red-400 rounded-lg font-tech text-[8.5px] font-bold flex items-center gap-1.5 transition-all active:scale-[0.98]"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> CLEAR LOGS
                 </button>
               </div>
 
               {/* Concurrency Progress Indicator */}
-              <div className={`px-5 py-4 bg-slate-950/30 border-b border-slate-900/80 shrink-0 transition-all duration-300 ${isRunning ? 'block' : 'hidden'}`}>
-                <div className="flex justify-between items-center font-mono text-[10px] mb-2">
+              <div className={`px-5 py-4 bg-slate-955/30 border-b border-slate-900/80 shrink-0 transition-all duration-300 ${isRunning ? 'block' : 'hidden'}`}>
+                <div className="flex justify-between items-center font-tech text-[9px] mb-2">
                   <span className="text-cyan-400 font-bold flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
                     {progressStatus}
                   </span>
-                  <span className="text-slate-350">{progressText}</span>
+                  <span className="text-slate-350 font-mono">{progressText}</span>
                 </div>
                 <div className="h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-900/85 p-[1px]">
                   <div 
@@ -1200,13 +1227,13 @@ export default function App() {
               </div>
 
               {/* Filter Badges */}
-              <div className="px-5 py-3 bg-slate-950/50 border-b border-slate-900/80 flex gap-2 flex-wrap shrink-0 font-mono text-[10px]">
+              <div className="px-5 py-3 bg-slate-955/50 border-b border-slate-900/80 flex gap-2 flex-wrap shrink-0 font-tech text-[9px] font-bold">
                 <button 
                   onClick={() => filterR(null)}
                   className={`px-3 py-1.5 border rounded-lg flex items-center gap-1.5 transition-all duration-200 active:scale-95 ${
                     activeFilter === null 
-                      ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.1)]' 
-                      : 'border-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                      ? 'bg-white/10 border-white/20 text-white shadow-[0_0_10px_rgba(255,255,255,0.04)]' 
+                      : 'border-slate-900/60 text-slate-400 hover:text-slate-200 hover:border-slate-800'
                   }`}
                 >
                   ALL: <span className="font-bold">{counters.all}</span>
@@ -1216,7 +1243,7 @@ export default function App() {
                   className={`px-3 py-1.5 border rounded-lg flex items-center gap-1.5 transition-all duration-200 active:scale-95 ${
                     activeFilter === 'CHARGED' 
                       ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.1)]' 
-                      : 'border-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                      : 'border-slate-900/60 text-slate-400 hover:text-slate-200 hover:border-slate-800'
                   }`}
                 >
                   CHARGED: <span className="font-bold">{counters.charged}</span>
@@ -1225,8 +1252,8 @@ export default function App() {
                   onClick={() => filterR('LIVE')}
                   className={`px-3 py-1.5 border rounded-lg flex items-center gap-1.5 transition-all duration-200 active:scale-95 ${
                     activeFilter === 'LIVE' 
-                      ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.1)]' 
-                      : 'border-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                      ? 'bg-cyan-500/10 border-cyan-500/35 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.1)]' 
+                      : 'border-slate-900/60 text-slate-400 hover:text-slate-200 hover:border-slate-800'
                   }`}
                 >
                   LIVE: <span className="font-bold">{counters.live}</span>
@@ -1236,7 +1263,7 @@ export default function App() {
                   className={`px-3 py-1.5 border rounded-lg flex items-center gap-1.5 transition-all duration-200 active:scale-95 ${
                     activeFilter === 'FRAUD' 
                       ? 'bg-orange-500/10 border-orange-500/30 text-orange-400 shadow-[0_0_10px_rgba(249,115,22,0.1)]' 
-                      : 'border-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                      : 'border-slate-900/60 text-slate-400 hover:text-slate-200 hover:border-slate-800'
                   }`}
                 >
                   FRAUD: <span className="font-bold">{counters.fraud}</span>
@@ -1246,7 +1273,7 @@ export default function App() {
                   className={`px-3 py-1.5 border rounded-lg flex items-center gap-1.5 transition-all duration-200 active:scale-95 ${
                     activeFilter === 'DEAD' 
                       ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 shadow-[0_0_10px_rgba(244,63,94,0.1)]' 
-                      : 'border-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                      : 'border-slate-900/60 text-slate-400 hover:text-slate-200 hover:border-slate-800'
                   }`}
                 >
                   DEAD: <span className="font-bold">{counters.dead}</span>
@@ -1256,7 +1283,7 @@ export default function App() {
                   className={`px-3 py-1.5 border rounded-lg flex items-center gap-1.5 transition-all duration-200 active:scale-95 ${
                     activeFilter === 'OTP_REQUIRED' 
                       ? 'bg-blue-500/10 border-blue-500/30 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.1)]' 
-                      : 'border-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                      : 'border-slate-900/60 text-slate-400 hover:text-slate-200 hover:border-slate-800'
                   }`}
                 >
                   3DS: <span className="font-bold">{counters.otp}</span>
@@ -1266,7 +1293,7 @@ export default function App() {
                   className={`px-3 py-1.5 border rounded-lg flex items-center gap-1.5 transition-all duration-200 active:scale-95 ${
                     activeFilter === 'LOW_BALANCE' 
                       ? 'bg-purple-500/10 border-purple-500/30 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.1)]' 
-                      : 'border-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                      : 'border-slate-900/60 text-slate-400 hover:text-slate-200 hover:border-slate-800'
                   }`}
                 >
                   LOW: <span className="font-bold">{counters.low}</span>
@@ -1276,7 +1303,7 @@ export default function App() {
                   className={`px-3 py-1.5 border rounded-lg flex items-center gap-1.5 transition-all duration-200 active:scale-95 ${
                     activeFilter === 'ERR' 
                       ? 'bg-amber-500/10 border-amber-500/30 text-amber-405 shadow-[0_0_10px_rgba(245,158,11,0.1)]' 
-                      : 'border-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-800'
+                      : 'border-slate-900/60 text-slate-400 hover:text-slate-200 hover:border-slate-800'
                   }`}
                 >
                   ERR: <span className="font-bold">{counters.err}</span>
@@ -1284,7 +1311,7 @@ export default function App() {
               </div>
 
               {/* Console Logs Lists */}
-              <div className="flex-1 min-h-[350px] md:min-h-[480px] bg-slate-950/85 p-3 overflow-y-auto flex flex-col font-mono text-[10px] md:text-[11px] select-text">
+              <div className="flex-1 min-h-[350px] md:min-h-[480px] bg-slate-950/15 p-3 overflow-y-auto flex flex-col font-mono text-[10px] md:text-[11px] select-text">
                 {filteredResults.length === 0 ? (
                   <div className="text-slate-600 italic text-center my-auto py-12">
                     // Console is idle. Waiting for checking input...
@@ -1347,11 +1374,11 @@ export default function App() {
 
         {/* Tab: DATABASE */}
         {tab === 'admin' && isAdmin && dbInfo && (
-          <div className="flex flex-col gap-6 animate-slide-up font-mono tab-content-active">
+          <div className="flex flex-col gap-6 animate-slide-up font-tech tab-content-active">
             {/* Database Status Panel */}
             <div className="glass-panel glass-panel-glow-purple rounded-2xl p-5 hover:border-slate-800/80 transition-all duration-300">
               <div className="flex items-center justify-between mb-4">
-                <div className="text-xs font-bold text-white tracking-wider flex items-center gap-2">
+                <div className="text-[10.5px] font-bold text-white tracking-wider flex items-center gap-2">
                   <Database className="w-4 h-4 text-purple-400" /> DATABASE CONNECTION ENVIRONMENT
                 </div>
                 <div className={`px-2.5 py-0.5 border rounded-lg text-[9px] font-bold ${
@@ -1361,8 +1388,8 @@ export default function App() {
                 </div>
               </div>
               
-              <div className="bg-slate-950/60 border border-slate-900/80 rounded-xl p-3 text-xs flex justify-between items-center text-slate-350 select-all">
-                <span className="truncate mr-3">{dbInfo.db_url}</span>
+              <div className="bg-slate-950/60 border border-slate-900/80 rounded-xl p-3 text-xs flex justify-between items-center text-slate-355 select-all">
+                <span className="truncate mr-3 font-mono">{dbInfo.db_url}</span>
                 <span className="text-[8px] text-slate-500 border border-slate-900 bg-slate-950 px-1.5 py-0.5 rounded uppercase select-none shrink-0 font-bold">SSL REQUIRED</span>
               </div>
             </div>
@@ -1371,8 +1398,8 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Site database control */}
               <div className="glass-panel glass-panel-glow-cyan rounded-2xl p-5 hover:border-slate-800/80 transition-all duration-300 flex flex-col gap-4">
-                <div className="text-xs font-bold text-white tracking-wider flex items-center gap-2">
-                  <Server className="w-4 h-4 text-cyan-405" /> GLOBAL SITES LIST (DATABASE)
+                <div className="text-[10.5px] font-bold text-white tracking-wider flex items-center gap-2">
+                  <Server className="w-4 h-4 text-cyan-400" /> GLOBAL SITES LIST (DATABASE)
                 </div>
 
                 <form onSubmit={handleAdminAddSite} className="flex gap-2">
@@ -1381,16 +1408,16 @@ export default function App() {
                     placeholder="https://example.com"
                     value={adminAddSiteInput}
                     onChange={(e) => setAdminAddSiteInput(e.target.value)}
-                    className="flex-1 bg-slate-950/65 border border-slate-900 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none focus:border-cyan-500/40 focus:ring-1 focus:ring-cyan-500/25 transition-all placeholder:text-slate-700"
+                    className="flex-1 bg-slate-950/65 border border-slate-900 rounded-xl px-3 py-2 text-xs text-slate-250 outline-none focus:border-cyan-500/40 focus:ring-1 focus:ring-cyan-500/25 transition-all placeholder:text-slate-700"
                   />
                   <button type="submit" className="py-2 px-4 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1 transition-all active:scale-[0.98] duration-200 hover:shadow-[0_0_12px_rgba(6,182,212,0.35)]">
                     <Plus className="w-3.5 h-3.5" /> ADD
                   </button>
                 </form>
 
-                <div className="bg-slate-950/65 border border-slate-900 rounded-xl p-3 text-[11.5px] text-slate-400 h-64 overflow-y-auto flex flex-col gap-1 select-text">
+                <div className="bg-slate-950/65 border border-slate-900 rounded-xl p-3 text-[11px] text-slate-400 h-64 overflow-y-auto flex flex-col gap-1 select-text font-mono">
                   {dbInfo.sites.length === 0 ? (
-                    <div className="text-slate-600 italic text-center my-auto">// No sites loaded in database</div>
+                    <div className="text-slate-600 italic text-center my-auto font-tech">// No sites loaded in database</div>
                   ) : (
                     dbInfo.sites.map((site, i) => (
                       <div key={i} className="flex justify-between items-center py-1.5 px-2.5 hover:bg-slate-900/30 rounded-lg transition-all duration-150">
@@ -1409,8 +1436,8 @@ export default function App() {
 
               {/* Proxy database control */}
               <div className="glass-panel glass-panel-glow-purple rounded-2xl p-5 hover:border-slate-800/80 transition-all duration-300 flex flex-col gap-4">
-                <div className="text-xs font-bold text-white tracking-wider flex items-center gap-2">
-                  <Server className="w-4 h-4 text-purple-405" /> GLOBAL PROXIES LIST (DATABASE)
+                <div className="text-[10.5px] font-bold text-white tracking-wider flex items-center gap-2">
+                  <Server className="w-4 h-4 text-purple-400" /> GLOBAL PROXIES LIST (DATABASE)
                 </div>
 
                 <form onSubmit={handleAdminAddProxy} className="flex gap-2">
@@ -1419,16 +1446,16 @@ export default function App() {
                     placeholder="user:pass@ip:port"
                     value={adminAddProxyInput}
                     onChange={(e) => setAdminAddProxyInput(e.target.value)}
-                    className="flex-1 bg-slate-950/65 border border-slate-900 rounded-xl px-3 py-2 text-xs text-slate-200 outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/25 transition-all placeholder:text-slate-700"
+                    className="flex-1 bg-slate-950/65 border border-slate-900 rounded-xl px-3 py-2 text-xs text-slate-250 outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/25 transition-all placeholder:text-slate-700"
                   />
                   <button type="submit" className="py-2 px-4 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 text-white text-xs font-bold rounded-xl flex items-center gap-1 transition-all active:scale-[0.98] duration-200 hover:shadow-[0_0_12px_rgba(168,85,247,0.35)]">
                     <Plus className="w-3.5 h-3.5" /> ADD
                   </button>
                 </form>
 
-                <div className="bg-slate-950/65 border border-slate-900 rounded-xl p-3 text-[11.5px] text-slate-400 h-64 overflow-y-auto flex flex-col gap-1 select-text">
+                <div className="bg-slate-950/65 border border-slate-900 rounded-xl p-3 text-[11px] text-slate-400 h-64 overflow-y-auto flex flex-col gap-1 select-text font-mono">
                   {dbInfo.proxies.length === 0 ? (
-                    <div className="text-slate-600 italic text-center my-auto">// No proxies loaded in database</div>
+                    <div className="text-slate-600 italic text-center my-auto font-tech">// No proxies loaded in database</div>
                   ) : (
                     dbInfo.proxies.map((proxy, i) => (
                       <div key={i} className="flex justify-between items-center py-1.5 px-2.5 hover:bg-slate-900/30 rounded-lg transition-all duration-150">

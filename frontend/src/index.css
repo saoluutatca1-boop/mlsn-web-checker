@@ -1,11 +1,28 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @layer base {
+  html {
+    background-color: #010409;
+  }
+
   body {
-    background-color: #020617;
+    background-color: transparent;
     color: #f8fafc;
     font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -20px;
+    background-image: linear-gradient(rgba(1, 4, 9, 0.15), rgba(1, 4, 9, 0.40)), url('./assets/bg.jpg');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    filter: blur(16px);
+    z-index: -1;
+    pointer-events: none;
   }
   
   code, pre, .font-mono {
@@ -13,23 +30,24 @@
   }
 }
 
+.font-tech {
+  font-family: 'Orbitron', 'Outfit', sans-serif;
+  letter-spacing: 0.08em;
+}
+
 /* Glassmorphism & Cyberpunk Panels */
 .glass-panel {
-  background: rgba(8, 15, 30, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(2, 6, 16, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
 }
 
-.glass-panel-glow-cyan:hover {
-  border-color: rgba(6, 182, 212, 0.25);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5), 0 0 15px 0 rgba(6, 182, 212, 0.05);
-}
-
+.glass-panel-glow-cyan:hover,
 .glass-panel-glow-purple:hover {
-  border-color: rgba(168, 85, 247, 0.25);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5), 0 0 15px 0 rgba(168, 85, 247, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5), 0 0 20px 0 rgba(255, 255, 255, 0.03);
 }
 
 /* Custom scrollbars */
@@ -143,5 +161,70 @@
   opacity: 1;
   transform: scale(1) translateY(0);
   transition: opacity 0.25s ease-out, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Hardware-accelerated Desktop-only Icon Micro-Animations */
+@media (min-width: 768px) {
+  /* Setup base transitions for all SVG icons */
+  svg {
+    transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.22s ease;
+    will-change: transform;
+  }
+
+  /* Sidebar Tab Hover: subtle scale and tilt */
+  button:hover svg.lucide-terminal,
+  button:hover svg.lucide-database {
+    transform: scale(1.15) rotate(-5deg);
+  }
+
+  /* Play button: push right slightly */
+  button:hover svg.lucide-play {
+    transform: scale(1.1) translateX(1.5px);
+  }
+
+  /* Stop button: bounce shrink */
+  button:hover svg.lucide-square {
+    transform: scale(0.88);
+  }
+
+  /* Pause button: slide down slightly */
+  button:hover svg.lucide-pause {
+    transform: scale(1.05) translateY(0.5px);
+  }
+
+  /* Trash/Delete button: tilt right */
+  button:hover svg.lucide-trash-2 {
+    transform: translateY(-0.5px) rotate(6deg) scale(1.08);
+  }
+
+  /* Add Plus button: rotate 90 degrees */
+  button:hover svg.lucide-plus,
+  label:hover svg.lucide-plus {
+    transform: rotate(90deg) scale(1.12);
+  }
+
+  /* Clear X button: spin counter-clockwise */
+  button:hover svg.lucide-x {
+    transform: rotate(-90deg) scale(1.12);
+  }
+
+  /* Logout button: slide out right */
+  button:hover svg.lucide-log-out {
+    transform: translateX(2.5px) scale(1.05);
+  }
+
+  /* Upload Cloud: loop floating animation on container hover */
+  .border-dashed:hover svg.lucide-upload-cloud {
+    animation: cloud-float 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes cloud-float {
+  0%, 100% {
+    transform: translateY(0) scale(1.05);
+  }
+  50% {
+    transform: translateY(-3.5px) scale(1.05);
+  }
 }
 
