@@ -29,6 +29,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -54,15 +55,582 @@ type Card struct {
 }
 
 type CheckResult struct {
-	Status    string `json:"status"`
-	Msg       string `json:"msg"`
-	Emoji     string `json:"emoji"`
-	Price     string `json:"price"`
-	Gateway   string `json:"gateway"`
-	Site      string `json:"site"`
-	ReceiptID string `json:"receipt_id"`
-	Time      string `json:"time"`
-	Card      string `json:"card"`
+	Status      string `json:"status"`
+	Msg         string `json:"msg"`
+	Emoji       string `json:"emoji"`
+	Price       string `json:"price"`
+	Gateway     string `json:"gateway"`
+	Site        string `json:"site"`
+	ReceiptID   string `json:"receipt_id"`
+	Time        string `json:"time"`
+	Card        string `json:"card"`
+	BinBrand    string `json:"bin_brand,omitempty"`
+	BinType     string `json:"bin_type,omitempty"`
+	BinClass    string `json:"bin_class,omitempty"`
+	BinBank     string `json:"bin_bank,omitempty"`
+	BinCountry  string `json:"bin_country,omitempty"`
+}
+
+type ProxyStats struct {
+	URL             string
+	Latency         time.Duration
+	ContinuousFails int
+	BannedUntil     time.Time
+	TotalSuccess    int
+	TotalFails      int
+}
+
+type ProxyManager struct {
+	mu    sync.RWMutex
+	stats map[string]*ProxyStats
+}
+
+var (
+	proxyManagerInstance *ProxyManager
+	proxyManagerOnce     sync.Once
+)
+
+func GetProxyManager() *ProxyManager {
+	proxyManagerOnce.Do(func() {
+		proxyManagerInstance = &ProxyManager{
+			stats: make(map[string]*ProxyStats),
+		}
+	})
+	return proxyManagerInstance
+}
+
+func (pm *ProxyManager) RecordResult(proxy string, latency time.Duration, success bool) {
+	if proxy == "" {
+		return
+	}
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	s, exists := pm.stats[proxy]
+	if !exists {
+		s = &ProxyStats{URL: proxy}
+		pm.stats[proxy] = s
+	}
+
+	if success {
+		s.TotalSuccess++
+		s.ContinuousFails = 0
+		if s.Latency == 0 {
+			s.Latency = latency
+		} else {
+			s.Latency = (s.Latency*7 + latency*3) / 10
+		}
+	} else {
+		s.TotalFails++
+		s.ContinuousFails++
+		if s.ContinuousFails >= 3 {
+			s.BannedUntil = time.Now().Add(10 * time.Minute)
+		}
+	}
+}
+
+func (pm *ProxyManager) PickProxy(proxies []string) string {
+	if len(proxies) == 0 {
+		return ""
+	}
+
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	now := time.Now()
+	var candidates []*ProxyStats
+	var fallback []*ProxyStats
+
+	for _, p := range proxies {
+		s, exists := pm.stats[p]
+		if !exists {
+			candidates = append(candidates, &ProxyStats{URL: p})
+			continue
+		}
+
+		if s.BannedUntil.After(now) {
+			fallback = append(fallback, s)
+			continue
+		}
+		candidates = append(candidates, s)
+	}
+
+	if len(candidates) == 0 {
+		if len(fallback) > 0 {
+			sort.Slice(fallback, func(i, j int) bool {
+				return fallback[i].BannedUntil.Before(fallback[j].BannedUntil)
+			})
+			return fallback[0].URL
+		}
+		return proxies[rand.Intn(len(proxies))]
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		latI := candidates[i].Latency
+		if latI == 0 {
+			latI = 1500 * time.Millisecond
+		}
+		latJ := candidates[j].Latency
+		if latJ == 0 {
+			latJ = 1500 * time.Millisecond
+		}
+		return latI < latJ
+	})
+
+	topN := len(candidates)
+	if topN > 5 {
+		topN = 5
+	}
+	idx := rand.Intn(topN)
+	return candidates[idx].URL
+}
+
+type BinInfo struct {
+	Brand   string `json:"brand"`
+	Type    string `json:"type"`
+	Class   string `json:"class"`
+	Bank    string `json:"bank"`
+	Country string `json:"country"`
+}
+
+var (
+	binCache   = make(map[string]*BinInfo)
+	binCacheMu sync.RWMutex
+)
+
+func getBinNumber(cardFormatted string) string {
+	parts := strings.Split(cardFormatted, "|")
+	if len(parts) == 0 {
+		return ""
+	}
+	cc := strings.TrimSpace(parts[0])
+	cc = strings.ReplaceAll(cc, " ", "")
+	if len(cc) >= 8 {
+		return cc[:8]
+	}
+	if len(cc) >= 6 {
+		return cc[:6]
+	}
+	return ""
+}
+
+func fetchBinInfo(bin string) (*BinInfo, error) {
+	if len(bin) < 6 {
+		return nil, errors.New("invalid bin length")
+	}
+	bin = bin[:6]
+
+	binCacheMu.RLock()
+	if info, exists := binCache[bin]; exists {
+		binCacheMu.RUnlock()
+		return info, nil
+	}
+	binCacheMu.RUnlock()
+
+	var info *BinInfo
+	var err error
+
+	info, err = tryStormX(bin)
+	if err == nil && info != nil {
+		saveToBinCache(bin, info)
+		return info, nil
+	}
+
+	info, err = tryBinListNet(bin)
+	if err == nil && info != nil {
+		saveToBinCache(bin, info)
+		return info, nil
+	}
+
+	info, err = tryBinListIo(bin)
+	if err == nil && info != nil {
+		saveToBinCache(bin, info)
+		return info, nil
+	}
+
+	info, err = tryHandyAPI(bin)
+	if err == nil && info != nil {
+		saveToBinCache(bin, info)
+		return info, nil
+	}
+
+	info, err = tryVoidex(bin)
+	if err == nil && info != nil {
+		saveToBinCache(bin, info)
+		return info, nil
+	}
+
+	fallbackBrand, fallbackType := getLocalBinGuess(bin)
+	info = &BinInfo{
+		Brand:   fallbackBrand,
+		Type:    fallbackType,
+		Class:   "Unknown",
+		Bank:    "Unknown Bank",
+		Country: "Unknown Country",
+	}
+	saveToBinCache(bin, info)
+	return info, nil
+}
+
+func saveToBinCache(bin string, info *BinInfo) {
+	binCacheMu.Lock()
+	binCache[bin] = info
+	binCacheMu.Unlock()
+}
+
+func tryStormX(bin string) (*BinInfo, error) {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://stormxdark.tech/api/bin/" + bin)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	var data struct {
+		Brand   string `json:"brand"`
+		Type    string `json:"type"`
+		Class   string `json:"class"`
+		Bank    string `json:"bank"`
+		Country string `json:"country"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	return &BinInfo{
+		Brand:   strings.ToUpper(data.Brand),
+		Type:    strings.ToUpper(data.Type),
+		Class:   data.Class,
+		Bank:    data.Bank,
+		Country: data.Country,
+	}, nil
+}
+
+func tryBinListNet(bin string) (*BinInfo, error) {
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequest("GET", "https://lookup.binlist.net/"+bin, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept-Version", "3")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	var data struct {
+		Scheme  string `json:"scheme"`
+		Type    string `json:"type"`
+		Brand   string `json:"brand"`
+		Country struct {
+			Name string `json:"name"`
+		} `json:"country"`
+		Bank struct {
+			Name string `json:"name"`
+		} `json:"bank"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	brand := data.Scheme
+	if data.Brand != "" {
+		brand = data.Brand
+	}
+	class := "Classic"
+	if strings.Contains(strings.ToLower(brand), "gold") {
+		class = "Gold"
+	} else if strings.Contains(strings.ToLower(brand), "platinum") {
+		class = "Platinum"
+	} else if strings.Contains(strings.ToLower(brand), "signature") {
+		class = "Signature"
+	}
+
+	return &BinInfo{
+		Brand:   strings.ToUpper(brand),
+		Type:    strings.ToUpper(data.Type),
+		Class:   class,
+		Bank:    data.Bank.Name,
+		Country: data.Country.Name,
+	}, nil
+}
+
+func tryBinListIo(bin string) (*BinInfo, error) {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://api.binlist.io/" + bin)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	var data struct {
+		Scheme  string `json:"scheme"`
+		Type    string `json:"type"`
+		Brand   string `json:"brand"`
+		Country struct {
+			Name string `json:"name"`
+		} `json:"country"`
+		Bank struct {
+			Name string `json:"name"`
+		} `json:"bank"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	brand := data.Scheme
+	if data.Brand != "" {
+		brand = data.Brand
+	}
+	return &BinInfo{
+		Brand:   strings.ToUpper(brand),
+		Type:    strings.ToUpper(data.Type),
+		Class:   "Unknown",
+		Bank:    data.Bank.Name,
+		Country: data.Country.Name,
+	}, nil
+}
+
+func tryHandyAPI(bin string) (*BinInfo, error) {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://data.handyapi.com/bin/" + bin)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	var data struct {
+		Status  string `json:"Status"`
+		Scheme  string `json:"Scheme"`
+		Type    string `json:"Type"`
+		Brand   string `json:"Brand"`
+		Country struct {
+			Name string `json:"Name"`
+		} `json:"Country"`
+		Bank struct {
+			Name string `json:"Name"`
+		} `json:"Bank"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	if strings.ToLower(data.Status) == "fail" {
+		return nil, errors.New("handyapi failed to find bin")
+	}
+	brand := data.Scheme
+	if data.Brand != "" {
+		brand = data.Brand
+	}
+	return &BinInfo{
+		Brand:   strings.ToUpper(brand),
+		Type:    strings.ToUpper(data.Type),
+		Class:   "Unknown",
+		Bank:    data.Bank.Name,
+		Country: data.Country.Name,
+	}, nil
+}
+
+func tryVoidex(bin string) (*BinInfo, error) {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://api.voidex.tech/bin/" + bin)
+	if err != nil {
+		resp, err = client.Get("https://voidex.org/api/bin/" + bin)
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	var data struct {
+		Brand   string `json:"brand"`
+		Type    string `json:"type"`
+		Class   string `json:"class"`
+		Bank    string `json:"bank"`
+		Country string `json:"country"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	return &BinInfo{
+		Brand:   strings.ToUpper(data.Brand),
+		Type:    strings.ToUpper(data.Type),
+		Class:   data.Class,
+		Bank:    data.Bank,
+		Country: data.Country,
+	}, nil
+}
+
+func getLocalBinGuess(bin string) (brand string, cardType string) {
+	if len(bin) == 0 {
+		return "UNKNOWN", "UNKNOWN"
+	}
+	firstDigit := bin[0]
+	switch firstDigit {
+	case '4':
+		return "VISA", "DEBIT/CREDIT"
+	case '5':
+		return "MASTERCARD", "DEBIT/CREDIT"
+	case '3':
+		if len(bin) >= 2 && (bin[1] == '4' || bin[1] == '7') {
+			return "AMEX", "CREDIT"
+		}
+		return "JCB", "CREDIT"
+	case '6':
+		return "DISCOVER", "CREDIT"
+	}
+	return "UNKNOWN", "UNKNOWN"
+}
+
+func testProxy(proxyRaw string) (time.Duration, error) {
+	proxyConverted := formatProxyForAPI(proxyRaw)
+	if proxyConverted == "" {
+		return 0, errors.New("empty proxy")
+	}
+
+	proxyURLStr := "http://" + proxyConverted
+	if !strings.HasPrefix(proxyConverted, "http://") && !strings.HasPrefix(proxyConverted, "https://") {
+		proxyURLStr = "http://" + proxyConverted
+	} else {
+		proxyURLStr = proxyConverted
+	}
+
+	proxyURL, err := url.Parse(proxyURLStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid proxy URL: %v", err)
+	}
+
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(proxyURL),
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
+
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   7 * time.Second,
+	}
+
+	start := time.Now()
+	req, err := http.NewRequest("GET", "https://httpbin.org/ip", nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		req2, err2 := http.NewRequest("GET", "https://www.shopify.com", nil)
+		if err2 != nil {
+			return 0, err
+		}
+		req2.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+		start = time.Now()
+		resp2, err2 := client.Do(req2)
+		if err2 != nil {
+			return 0, err2
+		}
+		defer resp2.Body.Close()
+		return time.Since(start), nil
+	}
+	defer resp.Body.Close()
+	return time.Since(start), nil
+}
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+type WSClient struct {
+	conn   *websocket.Conn
+	userID int64
+}
+
+var (
+	wsClients   = make(map[*WSClient]bool)
+	wsClientsMu sync.Mutex
+)
+
+func broadcastTaskUpdate(userID int64, taskUpdate interface{}) {
+	wsClientsMu.Lock()
+	defer wsClientsMu.Unlock()
+
+	payload, err := json.Marshal(taskUpdate)
+	if err != nil {
+		return
+	}
+
+	for client := range wsClients {
+		if client.userID == userID {
+			_ = client.conn.WriteMessage(websocket.TextMessage, payload)
+		}
+	}
+}
+
+func wsHandler(w http.ResponseWriter, r *http.Request) {
+	session := getSession(r)
+	if session == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userVal, ok := session["user"]
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var userID int64
+	switch v := userVal.(type) {
+	case float64:
+		userID = int64(v)
+	case string:
+		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
+			userID = id
+		}
+	}
+	if userID == 0 {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("WebSocket upgrade failed:", err)
+		return
+	}
+
+	client := &WSClient{conn: conn, userID: userID}
+	wsClientsMu.Lock()
+	wsClients[client] = true
+	wsClientsMu.Unlock()
+
+	defer func() {
+		wsClientsMu.Lock()
+		delete(wsClients, client)
+		wsClientsMu.Unlock()
+		conn.Close()
+	}()
+
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+	}
 }
 
 var (
@@ -727,9 +1295,25 @@ func checkCard(client *http.Client, sacAPI string, card Card, sites []string, pr
 	var lastResult CheckResult
 	for attempt := 0; attempt < 5; attempt++ {
 		site := pickRandomSite(sites)
-		proxy := pickRandomProxy(proxies)
+		proxy := GetProxyManager().PickProxy(proxies)
+		
+		start := time.Now()
 		result := doCheck(client, sacAPI, card, site, proxy)
+		latency := time.Since(start)
 		lastResult = result
+
+		isSuccess := true
+		if result.Status == "TIMEOUT" || result.Status == "EXCEPTION" {
+			isSuccess = false
+		} else if result.Status == "ERROR" {
+			if !isExpiryError(result.Msg) {
+				isSuccess = false
+			}
+		}
+
+		if proxy != "" {
+			GetProxyManager().RecordResult(proxy, latency, isSuccess)
+		}
 
 		if noRetryStatuses[result.Status] {
 			return result
@@ -761,6 +1345,20 @@ func checkCardsBatch(client *http.Client, sacAPI string, cards []Card, sites []s
 
 			res := checkCard(client, sacAPI, c, sites, proxies)
 			res.Card = c.Formatted
+
+			if res.Status == "CHARGED" || res.Status == "LIVE" || res.Status == "OTP_REQUIRED" || res.Status == "LOW_BALANCE" {
+				binNum := getBinNumber(c.Formatted)
+				if binNum != "" {
+					if binInfo, err := fetchBinInfo(binNum); err == nil && binInfo != nil {
+						res.BinBrand = binInfo.Brand
+						res.BinType = binInfo.Type
+						res.BinClass = binInfo.Class
+						res.BinBank = binInfo.Bank
+						res.BinCountry = binInfo.Country
+					}
+				}
+			}
+
 			results[index] = res
 		}(i, card)
 	}
@@ -2155,6 +2753,20 @@ func checkCardsBatchCtx(ctx context.Context, client *http.Client, sacAPI string,
 
 			res := checkCard(client, sacAPI, c, sites, proxies)
 			res.Card = c.Formatted
+
+			if res.Status == "CHARGED" || res.Status == "LIVE" || res.Status == "OTP_REQUIRED" || res.Status == "LOW_BALANCE" {
+				binNum := getBinNumber(c.Formatted)
+				if binNum != "" {
+					if binInfo, err := fetchBinInfo(binNum); err == nil && binInfo != nil {
+						res.BinBrand = binInfo.Brand
+						res.BinType = binInfo.Type
+						res.BinClass = binInfo.Class
+						res.BinBank = binInfo.Bank
+						res.BinCountry = binInfo.Country
+					}
+				}
+			}
+
 			results[index] = res
 
 			if onCardChecked != nil {
@@ -2336,7 +2948,17 @@ func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []s
 		resultsMu.Lock()
 		results[index] = res
 		checkedCount++
+		currentChecked := checkedCount
 		resultsMu.Unlock()
+
+		broadcastTaskUpdate(userID, map[string]interface{}{
+			"type":          "card_checked",
+			"task_id":       taskID,
+			"total_cards":   len(cards),
+			"checked_cards": currentChecked,
+			"status":        "running",
+			"result":        res,
+		})
 	}
 
 	finalResults := checkCardsBatchCtx(ctx, client, sacAPI, cards, sites, proxies, concurrency, onCardChecked)
@@ -2371,6 +2993,14 @@ func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []s
 		SET status = $1, checked_cards = $2, results = $3, result_file_path = $4, updated_at = CURRENT_TIMESTAMP 
 		WHERE id = $5
 	`, status, len(validFinalResults), string(resultsJSON), filePathVal, taskID)
+
+	broadcastTaskUpdate(userID, map[string]interface{}{
+		"type":          "task_status",
+		"task_id":       taskID,
+		"status":        status,
+		"total_cards":   len(validFinalResults),
+		"checked_cards": len(validFinalResults),
+	})
 
 	if filePathVal.Valid {
 		caption := fmt.Sprintf("MLSN Checker Task #%d completed!\nStatus: %s\nTotal Cards: %d", taskID, status, len(validFinalResults))
@@ -2440,6 +3070,29 @@ func apiCheckStartHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !isAdmin {
+		var lastCreatedAt time.Time
+		errRate := db.QueryRow(`
+			SELECT created_at 
+			FROM check_tasks 
+			WHERE user_id = $1 
+			ORDER BY id DESC 
+			LIMIT 1
+		`, userID).Scan(&lastCreatedAt)
+
+		if errRate == nil {
+			if time.Since(lastCreatedAt) < 5*time.Minute {
+				remaining := 5*time.Minute - time.Since(lastCreatedAt)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error": fmt.Sprintf("Rate limit exceeded. Please wait %d seconds. / Bạn đang tạo task quá nhanh, vui lòng đợi %d giây.", int(remaining.Seconds()), int(remaining.Seconds())),
+				})
+				return
+			}
+		}
+	}
+
 	var taskID int
 	err := db.QueryRow(`
 		INSERT INTO check_tasks (user_id, status, total_cards, checked_cards, results)
@@ -2460,6 +3113,66 @@ func apiCheckStartHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"task_id": taskID,
+	})
+}
+
+func apiProxiesTestHandler(w http.ResponseWriter, r *http.Request) {
+	userID, _, isAdmin := getSessionUser(r)
+	proxies := getProxies(userID, isAdmin)
+
+	if len(proxies) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"results": []interface{}{},
+			"message": "No proxies found. / Không có proxy nào trong danh sách.",
+		})
+		return
+	}
+
+	type TestResult struct {
+		Proxy     string `json:"proxy"`
+		Status    string `json:"status"`
+		LatencyMs int64  `json:"latency_ms"`
+		Error     string `json:"error,omitempty"`
+	}
+
+	results := make([]TestResult, len(proxies))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 20) // Test up to 20 proxies concurrently
+
+	for i, proxy := range proxies {
+		wg.Add(1)
+		go func(idx int, p string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			lat, err := testProxy(p)
+			if err != nil {
+				results[idx] = TestResult{
+					Proxy: p,
+					Status: "dead",
+					Error: err.Error(),
+				}
+				GetProxyManager().RecordResult(p, 0, false)
+			} else {
+				results[idx] = TestResult{
+					Proxy: p,
+					Status: "alive",
+					LatencyMs: lat.Milliseconds(),
+				}
+				GetProxyManager().RecordResult(p, lat, true)
+			}
+		}(i, proxy)
+	}
+
+	wg.Wait()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"results": results,
 	})
 }
 
@@ -2731,6 +3444,8 @@ func main() {
 	mux.HandleFunc("/api/check/start", requireLogin(apiCheckStartHandler))
 	mux.HandleFunc("/api/check", requireLogin(apiCheckHandler))
 	mux.HandleFunc("/api/check/upload", requireLogin(apiCheckUploadHandler))
+	mux.HandleFunc("/api/ws", wsHandler)
+	mux.HandleFunc("/api/proxies/test", requireLogin(apiProxiesTestHandler))
 	
 	mux.HandleFunc("/api/tasks/active", requireLogin(apiTasksActiveHandler))
 	mux.HandleFunc("/api/tasks/details", requireLogin(apiTasksDetailsHandler))

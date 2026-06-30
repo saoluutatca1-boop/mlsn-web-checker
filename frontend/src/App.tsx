@@ -25,6 +25,11 @@ interface CheckResult {
   time: string
   card: string
   timestamp?: string
+  bin_brand?: string
+  bin_type?: string
+  bin_class?: string
+  bin_bank?: string
+  bin_country?: string
 }
 
 interface Stats {
@@ -82,6 +87,235 @@ const Logo = ({ size = 'md', className = '' }: { size?: 'sm' | 'md' | 'lg', clas
   )
 }
 
+function VisualAnalytics({ results, counters, cpmHistory }: { 
+  results: CheckResult[], 
+  counters: any, 
+  cpmHistory: { time: string, cpm: number }[] 
+}) {
+  const segments = [
+    { label: 'CHARGED', count: counters.charged, color: '#34d399' },
+    { label: 'LIVE', count: counters.live, color: '#22d3ee' },
+    { label: '3DS', count: counters.otp, color: '#60a5fa' },
+    { label: 'LOW', count: counters.low, color: '#c084fc' },
+    { label: 'FRAUD', count: counters.fraud, color: '#fb923c' },
+    { label: 'DEAD', count: counters.dead, color: '#f43f5e' },
+    { label: 'ERR', count: counters.err, color: '#fbbf24' },
+  ].filter(s => s.count > 0);
+
+  const total = segments.reduce((sum, s) => sum + s.count, 0);
+  let accumulatedPercent = 0;
+
+  const maxCpm = Math.max(...cpmHistory.map(d => d.cpm), 10);
+  const linePoints = cpmHistory.map((d, idx) => {
+    const x = 40 + idx * (240 / Math.max(cpmHistory.length - 1, 1));
+    const y = 130 - d.cpm * (110 / maxCpm);
+    return { x, y, ...d };
+  });
+
+  const linePath = linePoints.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const fillPath = linePoints.length > 0 
+    ? `${linePath} L ${linePoints[linePoints.length - 1].x} 130 L ${linePoints[0].x} 130 Z`
+    : '';
+
+  const siteStatsMap: { [site: string]: { totalTime: number, count: number } } = {};
+  results.forEach(r => {
+    if (!r.site) return;
+    const t = parseFloat(r.time);
+    if (isNaN(t)) return;
+    if (!siteStatsMap[r.site]) {
+      siteStatsMap[r.site] = { totalTime: 0, count: 0 };
+    }
+    siteStatsMap[r.site].totalTime += t;
+    siteStatsMap[r.site].count += 1;
+  });
+
+  const siteStats = Object.keys(siteStatsMap).map(site => {
+    const cleanName = site.replace('https://', '').replace('.myshopify.com', '').split('/')[0];
+    return {
+      site: cleanName,
+      avgLatency: siteStatsMap[site].totalTime / siteStatsMap[site].count
+    };
+  }).sort((a, b) => a.avgLatency - b.avgLatency).slice(0, 5);
+
+  const maxLatency = Math.max(...siteStats.map(s => s.avgLatency), 2);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-4 md:p-6 bg-slate-950/20 text-slate-200 rounded-b-2xl font-tech">
+      <div className="glass-panel p-4 flex flex-col items-center justify-between min-h-[220px]">
+        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 self-start flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> RESULT DISTRIBUTION
+        </div>
+        
+        {total === 0 ? (
+          <div className="flex flex-col items-center justify-center py-6 text-slate-600 text-[10px] italic">
+            <svg className="w-24 h-24 text-slate-800" viewBox="0 0 200 200">
+              <circle cx="100" cy="100" r="50" fill="transparent" stroke="currentColor" strokeWidth="10" strokeDasharray="314.16" />
+            </svg>
+            <span className="mt-2">// Waiting for card check results</span>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center w-full gap-4 flex-wrap md:flex-nowrap">
+            <svg className="w-32 h-32 drop-shadow-[0_0_8px_rgba(6,182,212,0.15)]" viewBox="0 0 200 200">
+              <circle cx="100" cy="100" r="50" fill="transparent" stroke="#0f172a" strokeWidth="15" />
+              {segments.map((s, idx) => {
+                const percent = s.count / total;
+                const dasharray = `${percent * 314.16} 314.16`;
+                const dashoffset = -accumulatedPercent * 314.16;
+                accumulatedPercent += percent;
+                return (
+                  <circle
+                    key={idx}
+                    cx="100"
+                    cy="100"
+                    r="50"
+                    fill="transparent"
+                    stroke={s.color}
+                    strokeWidth="15"
+                    strokeDasharray={dasharray}
+                    strokeDashoffset={dashoffset}
+                    transform="rotate(-90 100 100)"
+                    className="transition-all duration-500"
+                  />
+                );
+              })}
+              <text x="100" y="95" textAnchor="middle" fill="#64748b" fontSize="8" fontWeight="bold" letterSpacing="1">TOTAL</text>
+              <text x="100" y="115" textAnchor="middle" fill="#ffffff" fontSize="16" fontWeight="bold">{total}</text>
+            </svg>
+            
+            <div className="flex flex-col gap-1.5 text-[9px] font-bold text-slate-400 min-w-[100px]">
+              {segments.map((s, idx) => (
+                <div key={idx} className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                    <span>{s.label}</span>
+                  </div>
+                  <span className="text-white">{s.count} ({Math.round(s.count/total*100)}%)</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="glass-panel p-4 flex flex-col justify-between min-h-[220px]">
+        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> SPEED (CARDS / MINUTE)
+        </div>
+
+        {cpmHistory.length < 2 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-slate-600 text-[10px] italic">
+            // Chart initializing (sampling CPM speed every 5s)...
+          </div>
+        ) : (
+          <div className="w-full h-full flex flex-col">
+            <svg className="w-full h-32" viewBox="0 0 300 150">
+              <defs>
+                <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.3" />
+                  <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
+                </linearGradient>
+              </defs>
+              <line x1="40" y1="20" x2="280" y2="20" stroke="#1e293b" strokeDasharray="3 3" />
+              <line x1="40" y1="75" x2="280" y2="75" stroke="#1e293b" strokeDasharray="3 3" />
+              <line x1="40" y1="130" x2="280" y2="130" stroke="#334155" />
+              
+              {fillPath && <path d={fillPath} fill="url(#lineGrad)" />}
+              {linePath && <path d={linePath} fill="transparent" stroke="#06b6d4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+              
+              <text x="35" y="23" textAnchor="end" fill="#64748b" fontSize="8" fontWeight="bold">{Math.round(maxCpm)}</text>
+              <text x="35" y="78" textAnchor="end" fill="#64748b" fontSize="8" fontWeight="bold">{Math.round(maxCpm/2)}</text>
+              <text x="35" y="133" textAnchor="end" fill="#64748b" fontSize="8" fontWeight="bold">0</text>
+              
+              <text x="280" y="15" textAnchor="end" fill="#06b6d4" fontSize="9" fontWeight="bold">
+                CPM: {cpmHistory[cpmHistory.length - 1].cpm}
+              </text>
+            </svg>
+            <div className="flex justify-between px-10 text-[7.5px] text-slate-500 font-bold">
+              <span>{cpmHistory[0].time}</span>
+              <span>Timeline (5s ticks)</span>
+              <span>{cpmHistory[cpmHistory.length - 1].time}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="glass-panel p-4 flex flex-col justify-between min-h-[220px]">
+        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> GATEWAY LATENCY (SEC)
+        </div>
+
+        {siteStats.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-slate-600 text-[10px] italic">
+            // No latency data collected yet
+          </div>
+        ) : (
+          <div className="w-full h-full flex flex-col">
+            <svg className="w-full h-32" viewBox="0 0 300 150">
+              <line x1="50" y1="120" x2="280" y2="120" stroke="#334155" />
+              {siteStats.map((s, idx) => {
+                const w = 220 / siteStats.length;
+                const x = 60 + idx * w;
+                const h = (s.avgLatency / maxLatency) * 90;
+                const barHeight = Math.max(h, 5);
+                const barWidth = Math.min(w - 15, 25);
+                
+                return (
+                  <g key={idx}>
+                    <rect
+                      x={x + (w - barWidth)/2}
+                      y={120 - barHeight}
+                      width={barWidth}
+                      height={barHeight}
+                      fill="#22d3ee"
+                      opacity="0.15"
+                      rx="3"
+                      filter="blur(4px)"
+                    />
+                    <rect
+                      x={x + (w - barWidth)/2}
+                      y={120 - barHeight}
+                      width={barWidth}
+                      height={barHeight}
+                      fill="url(#barGrad)"
+                      rx="3"
+                    />
+                    <text
+                      x={x + (w/2)}
+                      y={115 - barHeight}
+                      textAnchor="middle"
+                      fill="#22d3ee"
+                      fontSize="7.5"
+                      fontWeight="bold"
+                    >
+                      {s.avgLatency.toFixed(2)}s
+                    </text>
+                    <text
+                      x={x + (w/2)}
+                      y="135"
+                      textAnchor="middle"
+                      fill="#64748b"
+                      fontSize="7.5"
+                      fontWeight="bold"
+                    >
+                      {s.site.length > 8 ? s.site.slice(0, 7) + '..' : s.site}
+                    </text>
+                  </g>
+                );
+              })}
+              <defs>
+                <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#22d3ee" />
+                  <stop offset="100%" stopColor="#06b6d4" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   // Navigation & Auth
   const [tab, setTab] = useState<'checker' | 'admin' | 'login'>(() => {
@@ -120,6 +354,44 @@ export default function App() {
   const [counters, setCounters] = useState({
     all: 0, charged: 0, live: 0, fraud: 0, dead: 0, otp: 0, low: 0, err: 0
   })
+
+  // Visual Analytics & Proxy Testing States
+  const [isTestingProxies, setIsTestingProxies] = useState(false)
+  const [consoleTab, setConsoleTab] = useState<'log' | 'analytics'>('log')
+  const [cpmHistory, setCpmHistory] = useState<{ time: string, cpm: number }[]>([])
+  const lastCheckedCountRef = useRef(0)
+
+  useEffect(() => {
+    if (!isRunning) {
+      lastCheckedCountRef.current = 0
+      return
+    }
+
+    lastCheckedCountRef.current = results.length
+    setCpmHistory([{ time: new Date().toTimeString().split(' ')[0], cpm: 0 }])
+
+    const interval = setInterval(() => {
+      setResults(currentResults => {
+        const count = currentResults.length
+        const diff = count - lastCheckedCountRef.current
+        const cpm = Math.max(diff * 12, 0)
+        lastCheckedCountRef.current = count
+
+        setCpmHistory(prev => {
+          const timestamp = new Date().toTimeString().split(' ')[0]
+          const next = [...prev, { time: timestamp, cpm }]
+          if (next.length > 20) {
+            return next.slice(1)
+          }
+          return next
+        })
+
+        return currentResults
+      })
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [isRunning])
 
   // Admin DB info state
   const [dbInfo, setDBInfo] = useState<DBInfo | null>(null)
@@ -412,7 +684,111 @@ export default function App() {
     }
   }
 
-  const pollTask = (taskId: number) => {
+  const wsRef = useRef<WebSocket | null>(null)
+
+  const connectWebSocket = (taskId: number) => {
+    if (wsRef.current) {
+      wsRef.current.close()
+    }
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+
+    taskIdRef.current = taskId
+    setCurrentTaskId(taskId)
+    setIsRunning(true)
+    setProgressStatus('CHECKING CARDS...')
+
+    const loc = window.location
+    const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${wsProto}//${loc.host}/api/ws`
+    const ws = new WebSocket(wsUrl)
+    wsRef.current = ws
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+        if (msg.task_id !== taskId) return
+
+        if (msg.type === 'card_checked') {
+          const res = msg.result
+          const timestamp = new Date().toTimeString().split(' ')[0]
+          res.timestamp = timestamp
+
+          setResults(prev => {
+            const nextResults = [...prev, res]
+            
+            const charged = nextResults.filter(r => r.status === 'CHARGED').length
+            const live = nextResults.filter(r => r.status === 'LIVE').length
+            const fraud = nextResults.filter(r => r.status === 'FRAUD').length
+            const dead = nextResults.filter(r => r.status === 'DEAD').length
+            const otp = nextResults.filter(r => r.status === 'OTP_REQUIRED').length
+            const low = nextResults.filter(r => r.status === 'LOW_BALANCE').length
+            const err = nextResults.filter(r => ['ERROR', 'TIMEOUT', 'EXCEPTION'].includes(r.status)).length
+
+            setCounters({
+              all: msg.total_cards,
+              charged,
+              live,
+              fraud,
+              dead,
+              otp,
+              low,
+              err
+            })
+
+            const pct = Math.round((msg.checked_cards / msg.total_cards) * 100)
+            setProgressPct(pct)
+            setProgressText(`${msg.checked_cards} / ${msg.total_cards} CHECKED (${pct}%)`)
+
+            return nextResults
+          })
+
+        } else if (msg.type === 'task_status') {
+          const status = msg.status
+          if (status === 'completed') {
+            setProgressStatus('DONE')
+            setIsRunning(false)
+            showToast('Checking completed successfully')
+            ws.close()
+          } else if (status === 'cancelled') {
+            setProgressStatus('TERMINATED')
+            setIsRunning(false)
+            showToast('Checking stopped manually', 'err')
+            ws.close()
+          } else if (status === 'failed') {
+            setProgressStatus('FAILED')
+            setIsRunning(false)
+            showToast('Checking task failed', 'err')
+            ws.close()
+          }
+        }
+      } catch (err) {
+        console.error("WebSocket message error:", err)
+      }
+    }
+
+    ws.onclose = () => {
+      console.log('WebSocket connection closed. Checking fallback...')
+      setTimeout(() => {
+        setIsRunning(currentRunning => {
+          if (currentRunning) {
+            console.log('Falling back to polling for task:', taskId)
+            pollTaskFallback(taskId)
+          }
+          return currentRunning
+        })
+      }, 1000)
+    }
+
+    ws.onerror = (err) => {
+      console.error('WebSocket error:', err)
+      ws.close()
+    }
+  }
+
+  const pollTaskFallback = (taskId: number) => {
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current)
     }
@@ -483,6 +859,38 @@ export default function App() {
         console.error(err)
       }
     }, 1500)
+  }
+
+  const pollTask = (taskId: number) => {
+    connectWebSocket(taskId)
+  }
+
+  const handleTestProxies = async () => {
+    if (isTestingProxies) return
+    setIsTestingProxies(true)
+    showToast("Starting proxy testing... / Bắt đầu test danh sách proxy...", "ok")
+    try {
+      const res = await fetch("/api/proxies/test", {
+        method: "POST"
+      })
+      if (!res.ok) {
+        throw new Error("Proxy testing failed")
+      }
+      const data = await res.json()
+      if (data.success) {
+        const results = data.results || []
+        const total = results.length
+        const alive = results.filter((p: any) => p.status === "alive").length
+        const dead = total - alive
+        showToast(`Test complete: ${alive}/${total} alive, ${dead} dead proxies.`, alive > 0 ? "ok" : "err")
+      } else {
+        throw new Error(data.message || "Failed to test proxies")
+      }
+    } catch (err: any) {
+      showToast(err.message || "Error testing proxies", "err")
+    } finally {
+      setIsTestingProxies(false)
+    }
   }
 
   const runChecker = async () => {
@@ -1201,6 +1609,13 @@ export default function App() {
                         <X className="w-3 h-3" /> CLR
                       </button>
                     </div>
+                    <button 
+                      onClick={handleTestProxies}
+                      disabled={isTestingProxies}
+                      className="w-full py-1.5 bg-cyan-955/20 hover:bg-cyan-500/10 border border-cyan-950 hover:border-cyan-500/30 text-cyan-400 rounded-lg text-[8.5px] font-bold flex items-center justify-center gap-1 transition-all active:scale-[0.98] disabled:opacity-40"
+                    >
+                      {isTestingProxies ? "TESTING PROXIES..." : "TEST ALL PROXIES"}
+                    </button>
                     <div className="bg-slate-950/20 border border-slate-900/60 rounded-xl p-3 text-[10px] text-slate-400 h-20 overflow-y-auto flex flex-col justify-center transition-all">
                       {userProxies.length > 0 ? (
                         <div className="flex flex-col gap-0.5">
@@ -1266,13 +1681,35 @@ export default function App() {
                 <div className="h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-900/85 p-[1px]">
                   <div 
                     className="h-full bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-500 rounded-full shadow-[0_0_10px_rgba(6,182,212,0.5)] transition-all duration-300 progress-animated"
-                    style={{ width: `${progressPct}%` }}
+                  style={{ width: `${progressPct}%` }}
                   />
                 </div>
               </div>
 
-              {/* Filter Badges */}
-              <div className="px-5 py-3 bg-slate-955/50 border-b border-slate-900/80 flex gap-2 flex-wrap shrink-0 font-tech text-[9px] font-bold">
+              {/* Tab Selector inside Runner Console */}
+              <div className="flex bg-slate-950/40 border-b border-slate-900/60 font-tech text-[10px] font-bold shrink-0">
+                <button
+                  onClick={() => setConsoleTab('log')}
+                  className={`px-5 py-3 border-r border-slate-900/60 transition-all flex items-center gap-1.5 outline-none ${
+                    consoleTab === 'log' ? 'bg-slate-950/80 text-cyan-400 border-b-2 border-b-cyan-500' : 'text-slate-500 hover:text-slate-350'
+                  }`}
+                >
+                  <Terminal className="w-3.5 h-3.5" /> LIVE CONSOLE
+                </button>
+                <button
+                  onClick={() => setConsoleTab('analytics')}
+                  className={`px-5 py-3 border-r border-slate-900/60 transition-all flex items-center gap-1.5 outline-none ${
+                    consoleTab === 'analytics' ? 'bg-slate-950/80 text-cyan-400 border-b-2 border-b-cyan-500' : 'text-slate-500 hover:text-slate-350'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" /> VISUAL ANALYTICS
+                </button>
+              </div>
+
+              {consoleTab === 'log' ? (
+                <>
+                  {/* Filter Badges */}
+                  <div className="px-5 py-3 bg-slate-955/50 border-b border-slate-900/80 flex gap-2 flex-wrap shrink-0 font-tech text-[9px] font-bold">
                 <button 
                   onClick={() => filterR(null)}
                   className={`px-3 py-1.5 border rounded-lg flex items-center gap-1.5 transition-all duration-200 active:scale-95 ${
@@ -1401,7 +1838,14 @@ export default function App() {
                           <span className={`px-2 py-0.5 border text-[8px] font-bold rounded-lg uppercase shrink-0 ${statusBg}`}>
                             [{displayStatus}]
                           </span>
-                          <span className="text-slate-200 shrink-0 font-semibold text-[10.5px] md:text-[11.5px] tracking-wide">{r.card}</span>
+                          <div className="flex flex-col shrink-0 min-w-[130px]">
+                            <span className="text-slate-200 font-semibold text-[10.5px] md:text-[11.5px] tracking-wide">{r.card}</span>
+                            {r.bin_brand && (
+                              <span className="text-[7.5px] text-cyan-400/90 font-bold uppercase tracking-wide mt-0.5">
+                                {r.bin_brand} • {r.bin_type || "N/A"} • {r.bin_class || "CLASSIC"} • {r.bin_bank || "BANK"} ({r.bin_country || "N/A"})
+                              </span>
+                            )}
+                          </div>
                           <span className="text-slate-400 text-[10.5px] overflow-hidden text-ellipsis flex-1 min-w-[150px] md:min-w-0">&gt; {r.msg}</span>
                           <span className={`shrink-0 text-[10.5px] md:text-[11.5px] ${colorClass}`}>{r.price}</span>
                           <span className="text-slate-500 text-[9.5px] shrink-0 font-semibold">{r.gateway}</span>
@@ -1413,9 +1857,13 @@ export default function App() {
                   </div>
                 )}
               </div>
-            </div>
+            </>
+          ) : (
+            <VisualAnalytics results={results} counters={counters} cpmHistory={cpmHistory} />
+          )}
           </div>
-        )}
+        </div>
+      )}
 
         {/* Tab: DATABASE */}
         {tab === 'admin' && isAdmin && dbInfo && (
