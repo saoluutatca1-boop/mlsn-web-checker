@@ -1095,16 +1095,34 @@ export default function App() {
     } catch (err) {}
   }
 
-  const clearResults = () => {
+  const clearResults = async () => {
     if (isRunning) {
       showToast("Engine is busy running", "err")
       return
     }
+
+    if (currentTaskId) {
+      try {
+        const res = await fetch(`/api/tasks/clear?id=${currentTaskId}`, {
+          method: 'POST'
+        })
+        if (res.ok) {
+          showToast("Task history deleted from server / Đã xóa lịch sử check thẻ.")
+          setCurrentTaskId(null)
+          taskIdRef.current = null
+        }
+      } catch (e) {
+        console.error("Failed to delete task history:", e)
+      }
+    }
+
     setResults([])
     setCounters({
       all: 0, charged: 0, live: 0, fraud: 0, dead: 0, otp: 0, low: 0, err: 0
     })
-    showToast("Console log buffer cleared")
+    setProgressPct(0)
+    setProgressText('0 / 0 CHECKED (0%)')
+    setProgressStatus('PREPARING ENVIRONMENT...')
   }
 
   const filterR = (f: string | null) => {

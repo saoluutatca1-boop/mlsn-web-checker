@@ -3360,6 +3360,67 @@ func apiTasksCancelHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
+func apiTasksClearHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	taskIDStr := r.URL.Query().Get("id")
+	if taskIDStr == "" {
+		var reqData struct {
+			ID int `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&reqData); err == nil && reqData.ID > 0 {
+			taskIDStr = strconv.Itoa(reqData.ID)
+		}
+	}
+	if taskIDStr == "" {
+		http.Error(w, "Task ID is required", http.StatusBadRequest)
+		return
+	}
+	taskID, err := strconv.Atoi(taskIDStr)
+	if err != nil {
+		http.Error(w, "Invalid Task ID", http.StatusBadRequest)
+		return
+	}
+
+	userID, _, isAdmin := getSessionUser(r)
+	if db == nil {
+		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	var tUserID int64
+	var resultFilePath sql.NullString
+	err = db.QueryRow("SELECT user_id, result_file_path FROM check_tasks WHERE id = $1", taskID).Scan(&tUserID, &resultFilePath)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Task not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if tUserID != userID && !isAdmin {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	if resultFilePath.Valid && resultFilePath.String != "" {
+		_ = os.Remove(resultFilePath.String)
+	}
+
+	_, err = db.Exec("DELETE FROM check_tasks WHERE id = $1", taskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
 func apiTasksDownloadHandler(w http.ResponseWriter, r *http.Request) {
 	taskIDStr := r.URL.Query().Get("id")
 	if taskIDStr == "" {
@@ -3450,6 +3511,7 @@ func main() {
 	mux.HandleFunc("/api/tasks/active", requireLogin(apiTasksActiveHandler))
 	mux.HandleFunc("/api/tasks/details", requireLogin(apiTasksDetailsHandler))
 	mux.HandleFunc("/api/tasks/cancel", requireLogin(apiTasksCancelHandler))
+	mux.HandleFunc("/api/tasks/clear", requireLogin(apiTasksClearHandler))
 	mux.HandleFunc("/api/tasks/download", requireLogin(apiTasksDownloadHandler))
 
 	mux.HandleFunc("/api/sites/upload", requireLogin(apiUploadSitesHandler))
