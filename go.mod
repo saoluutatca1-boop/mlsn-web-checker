@@ -1,5 +1,5 @@
 module mlsn-web-checker
 
-go 1.26.1
+go 1.24
 
 require github.com/lib/pq v1.12.3
