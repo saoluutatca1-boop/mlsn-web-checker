@@ -4,7 +4,7 @@ import {
   LogOut, Lock, User, Terminal, Server, ShieldCheck, CheckCircle2, AlertCircle,
   Menu, Download, Copy
 } from 'lucide-react'
-import { PixelAvatar } from './PixelAvatars'
+import { PixelAvatar, AvatarCustomizer, FACES, EYES, MOUTHS, HAIRS, ACCESSORIES } from './PixelAvatars'
 // Types based on the Go backend API
 interface Card {
   cc: string
@@ -360,6 +360,34 @@ export default function App() {
   const [consoleTab, setConsoleTab] = useState<'log' | 'analytics'>('log')
   const [cpmHistory, setCpmHistory] = useState<{ time: string, cpm: number }[]>([])
   const lastCheckedCountRef = useRef(0)
+
+  const [customAvatarConfig, setCustomAvatarConfig] = useState<{
+    face: number
+    eyes: number
+    mouth: number
+    hair: number
+    acc: number
+  } | null>(null)
+  const [isCustomizerOpen, setIsCustomizerOpen] = useState(false)
+
+  const loadCustomAvatar = (username: string) => {
+    try {
+      const stored = localStorage.getItem(`mlsn_avatar_${username}`)
+      if (stored) {
+        setCustomAvatarConfig(JSON.parse(stored))
+      } else {
+        setCustomAvatarConfig(null)
+      }
+    } catch (e) {
+      setCustomAvatarConfig(null)
+    }
+  }
+
+  useEffect(() => {
+    if (user) {
+      loadCustomAvatar(user)
+    }
+  }, [user])
 
   useEffect(() => {
     if (!isRunning) {
@@ -1331,7 +1359,22 @@ export default function App() {
               {/* User Session card */}
               <div className="flex items-center justify-between bg-slate-900/30 border border-slate-905/40 rounded-xl p-2.5">
                 <div className="flex items-center gap-2 overflow-hidden">
-                  <PixelAvatar username={user} size={28} />
+                  <div 
+                    onClick={() => setIsCustomizerOpen(true)}
+                    className="cursor-pointer transition-all hover:scale-105 active:scale-95 group relative select-none shrink-0"
+                    title="Click to customize avatar / Bấm để thiết kế avatar"
+                  >
+                    <PixelAvatar 
+                      username={user || "guest"} 
+                      size={28} 
+                      customConfig={customAvatarConfig || undefined} 
+                    />
+                    <div className="absolute inset-0 bg-cyan-500/30 opacity-0 group-hover:opacity-100 rounded-lg flex items-center justify-center transition-opacity">
+                      <span className="text-[6.5px] text-white font-bold uppercase tracking-wider bg-slate-950/85 px-1 py-0.5 rounded border border-cyan-500/40 scale-75">
+                        EDIT
+                      </span>
+                    </div>
+                  </div>
                   <div className="flex flex-col overflow-hidden">
                     <span className="text-[10px] text-slate-250 font-bold truncate uppercase">{user}</span>
                     <span className="text-[8px] text-slate-500 truncate">{isAdmin ? 'ADMIN' : 'USER'}</span>
@@ -2098,6 +2141,34 @@ export default function App() {
         <footer className="text-center mt-auto pt-6 pb-2 text-slate-600 font-mono text-[9px] shrink-0 border-t border-slate-900/40">
           MLSN // CONSOLE RUNNER CLIENT v1.4.0 &copy; 2026
         </footer>
+
+        {isCustomizerOpen && (
+          <AvatarCustomizer 
+            username={user || "guest"}
+            onClose={() => setIsCustomizerOpen(false)}
+            currentConfig={customAvatarConfig || (() => {
+              const name = user ? user.trim() : "guest"
+              let hash = 0
+              for (let i = 0; i < name.length; i++) {
+                hash = name.charCodeAt(i) + ((hash << 5) - hash)
+              }
+              const seed = Math.abs(hash)
+              return {
+                face: seed % FACES.length,
+                eyes: (seed >> 2) % EYES.length,
+                mouth: (seed >> 4) % MOUTHS.length,
+                hair: (seed >> 6) % HAIRS.length,
+                acc: (seed >> 8) % ACCESSORIES.length
+              }
+            })()}
+            onSave={(config) => {
+              setCustomAvatarConfig(config)
+              localStorage.setItem(`mlsn_avatar_${user}`, JSON.stringify(config))
+              setIsCustomizerOpen(false)
+              showToast("Avatar customized successfully! / Đã lưu thiết kế hình đại diện mới.")
+            }}
+          />
+        )}
       </main>
     </div>
   )
