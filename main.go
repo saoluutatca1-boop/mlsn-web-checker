@@ -200,83 +200,135 @@ func initDB() {
 	}
 }
 
-func getSitesFromDB() []string {
-	dbCacheMu.RLock()
-	if dbSitesCache != nil && time.Since(dbCacheTime) < dbCacheTTL {
-		defer dbCacheMu.RUnlock()
-		return append([]string(nil), dbSitesCache...)
+func getSessionUser(r *http.Request) (int64, string, bool) {
+	sessionData := getSession(r)
+	if sessionData == nil {
+		return 0, "", false
 	}
-	dbCacheMu.RUnlock()
-
-	dbCacheMu.Lock()
-	defer dbCacheMu.Unlock()
-
-	if dbSitesCache != nil && time.Since(dbCacheTime) < dbCacheTTL {
-		return append([]string(nil), dbSitesCache...)
-	}
-
-	if db == nil {
-		return DEFAULT_SHOPIFY_SITES
-	}
-
-	rows, err := db.Query("SELECT DISTINCT url FROM sites ORDER BY url")
-	if err != nil {
-		log.Println("DB query failed:", err)
-		return DEFAULT_SHOPIFY_SITES
-	}
-	defer rows.Close()
-
-	var sites []string
-	for rows.Next() {
-		var u string
-		if err := rows.Scan(&u); err == nil && u != "" {
-			sites = append(sites, u)
+	
+	var uID int64
+	if val := sessionData["user_id"]; val != nil {
+		switch v := val.(type) {
+		case float64:
+			uID = int64(v)
+		case int64:
+			uID = v
+		case int:
+			uID = int64(v)
 		}
 	}
-	if len(sites) == 0 {
-		sites = DEFAULT_SHOPIFY_SITES
+	
+	var user string
+	if val := sessionData["user"]; val != nil {
+		if s, ok := val.(string); ok {
+			user = s
+		}
 	}
-	dbSitesCache = sites
-	dbCacheTime = time.Now()
-	return append([]string(nil), dbSitesCache...)
+	
+	var admin bool
+	if val := sessionData["admin"]; val != nil {
+		if b, ok := val.(bool); ok {
+			admin = b
+		}
+	}
+	
+	return uID, user, admin
 }
 
-func getProxiesFromDB() []string {
-	dbCacheMu.RLock()
-	if dbProxiesCache != nil && time.Since(dbCacheTime) < dbCacheTTL {
-		defer dbCacheMu.RUnlock()
-		return append([]string(nil), dbProxiesCache...)
-	}
-	dbCacheMu.RUnlock()
-
-	dbCacheMu.Lock()
-	defer dbCacheMu.Unlock()
-
-	if dbProxiesCache != nil && time.Since(dbCacheTime) < dbCacheTTL {
-		return append([]string(nil), dbProxiesCache...)
+func getSitesFromDB(userID int64, isAdmin bool) []string {
+	if db == nil {
+		return DEFAULT_SHOPIFY_SITES
 	}
 
+	if isAdmin || userID == 6071715158 {
+		rows, err := db.Query("SELECT DISTINCT url FROM sites ORDER BY url")
+		if err != nil {
+			log.Println("DB query failed for global sites:", err)
+			return DEFAULT_SHOPIFY_SITES
+		}
+		defer rows.Close()
+
+		var sites []string
+		for rows.Next() {
+			var u string
+			if err := rows.Scan(&u); err == nil && u != "" {
+				sites = append(sites, u)
+			}
+		}
+		if len(sites) == 0 {
+			return DEFAULT_SHOPIFY_SITES
+		}
+		return sites
+	}
+
+	var privateSitesJSON []byte
+	err := db.QueryRow("SELECT private_sites FROM users WHERE user_id = $1", userID).Scan(&privateSitesJSON)
+	if err != nil {
+		if err != sql.ErrNoRows {
+			log.Println("DB query failed for private_sites:", err)
+		}
+		return DEFAULT_SHOPIFY_SITES
+	}
+
+	if len(privateSitesJSON) == 0 || string(privateSitesJSON) == "null" {
+		return DEFAULT_SHOPIFY_SITES
+	}
+
+	var sites []string
+	if err := json.Unmarshal(privateSitesJSON, &sites); err != nil {
+		log.Println("JSON unmarshal failed for private_sites:", err)
+		return DEFAULT_SHOPIFY_SITES
+	}
+
+	if len(sites) == 0 {
+		return DEFAULT_SHOPIFY_SITES
+	}
+	return sites
+}
+
+func getProxiesFromDB(userID int64, isAdmin bool) []string {
 	if db == nil {
 		return nil
 	}
 
-	rows, err := db.Query("SELECT DISTINCT proxy FROM proxies ORDER BY proxy")
+	if isAdmin || userID == 6071715158 {
+		rows, err := db.Query("SELECT DISTINCT proxy FROM proxies ORDER BY proxy")
+		if err != nil {
+			log.Println("DB query failed for global proxies:", err)
+			return nil
+		}
+		defer rows.Close()
+
+		var proxies []string
+		for rows.Next() {
+			var p string
+			if err := rows.Scan(&p); err == nil && p != "" {
+				proxies = append(proxies, p)
+			}
+		}
+		return proxies
+	}
+
+	var privateProxiesJSON []byte
+	err := db.QueryRow("SELECT private_proxies FROM users WHERE user_id = $1", userID).Scan(&privateProxiesJSON)
 	if err != nil {
-		log.Println("DB query failed:", err)
+		if err != sql.ErrNoRows {
+			log.Println("DB query failed for private_proxies:", err)
+		}
 		return nil
 	}
-	defer rows.Close()
+
+	if len(privateProxiesJSON) == 0 || string(privateProxiesJSON) == "null" {
+		return nil
+	}
 
 	var proxies []string
-	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err == nil && p != "" {
-			proxies = append(proxies, p)
-		}
+	if err := json.Unmarshal(privateProxiesJSON, &proxies); err != nil {
+		log.Println("JSON unmarshal failed for private_proxies:", err)
+		return nil
 	}
-	dbProxiesCache = proxies
-	dbCacheTime = time.Now()
-	return append([]string(nil), dbProxiesCache...)
+
+	return proxies
 }
 
 func loadFile(path string) []string {
@@ -306,8 +358,8 @@ func saveFile(path string, data []string) {
 	json.NewEncoder(file).Encode(data)
 }
 
-func getSites() []string {
-	dbSites := getSitesFromDB()
+func getSites(userID int64, isAdmin bool) []string {
+	dbSites := getSitesFromDB(userID, isAdmin)
 	fileSites := loadFile(SITES_FILE)
 
 	seen := make(map[string]bool)
@@ -330,8 +382,8 @@ func getSites() []string {
 	return combined
 }
 
-func getProxies() []string {
-	dbProxies := getProxiesFromDB()
+func getProxies(userID int64, isAdmin bool) []string {
+	dbProxies := getProxiesFromDB(userID, isAdmin)
 	fileProxies := loadFile(PROXIES_FILE)
 
 	seen := make(map[string]bool)
@@ -925,7 +977,8 @@ func apiLoginTokenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionData := map[string]interface{}{
-		"user": user,
+		"user":    user,
+		"user_id": pending.ID,
 	}
 	
 	if isAdminUser {
@@ -1004,8 +1057,13 @@ func apiLoginTelegramHandler(w http.ResponseWriter, r *http.Request) {
 			if user == "" {
 				user = authData["id"]
 			}
+			var uID int64
+			if idStr, exists := authData["id"]; exists {
+				uID, _ = strconv.ParseInt(idStr, 10, 64)
+			}
 			sessionData := map[string]interface{}{
-				"user": user,
+				"user":    user,
+				"user_id": uID,
 			}
 			setSession(w, sessionData)
 			http.Redirect(w, r, "/", http.StatusFound)
@@ -1022,8 +1080,13 @@ func apiLoginTelegramHandler(w http.ResponseWriter, r *http.Request) {
 		if user == "" {
 			user = "test_user"
 		}
+		var uID int64
+		if idStr, exists := authData["id"]; exists {
+			uID, _ = strconv.ParseInt(idStr, 10, 64)
+		}
 		sessionData := map[string]interface{}{
-			"user": user,
+			"user":    user,
+			"user_id": uID,
 		}
 		setSession(w, sessionData)
 		http.Redirect(w, r, "/", http.StatusFound)
@@ -1084,8 +1147,8 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiStatsHandler(w http.ResponseWriter, r *http.Request) {
-	sessionData := getSession(r)
-	isLoggedIn := sessionData != nil && (sessionData["user"] != nil && sessionData["user"] != "" || sessionData["admin"] == true)
+	userID, username, isAdmin := getSessionUser(r)
+	isLoggedIn := userID != 0 || username != "" || isAdmin
 
 	sc := 0
 	pc := 0
@@ -1097,13 +1160,13 @@ func apiStatsHandler(w http.ResponseWriter, r *http.Request) {
 		if len(userSites) > 0 {
 			sc = len(userSites)
 		} else {
-			sc = len(getSitesFromDB())
+			sc = len(getSitesFromDB(userID, isAdmin))
 		}
 
 		if len(userProxies) > 0 {
 			pc = len(userProxies)
 		} else {
-			pc = len(getProxiesFromDB())
+			pc = len(getProxiesFromDB(userID, isAdmin))
 		}
 	}
 
@@ -1114,12 +1177,7 @@ func apiStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 	botUsername := os.Getenv("TELEGRAM_BOT_USERNAME")
 
-	sessionUser := ""
-	if isLoggedIn && sessionData["user"] != nil {
-		if uStr, ok := sessionData["user"].(string); ok {
-			sessionUser = uStr
-		}
-	}
+	sessionUser := username
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1165,7 +1223,12 @@ func apiCheckBatchHandler(w http.ResponseWriter, r *http.Request) {
 		concurrency = s
 	}
 
-	sites := getSites()
+	userID, _, isAdmin := getSessionUser(r)
+	sites := getSites(userID, isAdmin)
+	proxies := reqData.Proxies
+	if len(proxies) == 0 {
+		proxies = getProxies(userID, isAdmin)
+	}
 	client := &http.Client{
 		Timeout: 90 * time.Second,
 	}
@@ -1174,7 +1237,7 @@ func apiCheckBatchHandler(w http.ResponseWriter, r *http.Request) {
 		sacAPI = "https://sac-1-qg37.onrender.com"
 	}
 
-	results := checkCardsBatch(client, sacAPI, reqData.Cards, sites, reqData.Proxies, concurrency)
+	results := checkCardsBatch(client, sacAPI, reqData.Cards, sites, proxies, concurrency)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"results": results})
@@ -1333,8 +1396,13 @@ func apiCheckHandler(w http.ResponseWriter, r *http.Request) {
 		concurrency = s
 	}
 
-	sites := getSites()
-	handleCheckSSE(w, r, cards, sites, reqData.Proxies, concurrency)
+	userID, _, isAdmin := getSessionUser(r)
+	sites := getSites(userID, isAdmin)
+	proxies := reqData.Proxies
+	if len(proxies) == 0 {
+		proxies = getProxies(userID, isAdmin)
+	}
+	handleCheckSSE(w, r, cards, sites, proxies, concurrency)
 }
 
 func apiCheckUploadHandler(w http.ResponseWriter, r *http.Request) {
@@ -1389,7 +1457,11 @@ func apiCheckUploadHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sites := getSites()
+	userID, _, isAdmin := getSessionUser(r)
+	sites := getSites(userID, isAdmin)
+	if len(proxies) == 0 {
+		proxies = getProxies(userID, isAdmin)
+	}
 	handleCheckSSE(w, r, cards, sites, proxies, concurrency)
 }
 
@@ -1460,8 +1532,9 @@ func apiClearProxiesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiAdminDBInfoHandler(w http.ResponseWriter, r *http.Request) {
-	sites := getSites()
-	proxies := getProxies()
+	userID, _, isAdmin := getSessionUser(r)
+	sites := getSites(userID, isAdmin)
+	proxies := getProxies(userID, isAdmin)
 
 	dbStatus := "Disconnected"
 	maskedURL := "None"
