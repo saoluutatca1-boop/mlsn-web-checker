@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"io"
 	"log"
 	"math/rand"
@@ -758,7 +757,7 @@ func requireLogin(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		path := r.URL.Path
-		if strings.HasPrefix(path, "/static/") {
+		if strings.HasPrefix(path, "/static/") || strings.HasPrefix(path, "/assets/") {
 			next(w, r)
 			return
 		}
@@ -837,33 +836,15 @@ func verifyTelegramAuth(authData map[string]string, botToken string) bool {
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("templates/index.html")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	tmpl.Execute(w, nil)
+	http.ServeFile(w, r, "frontend/dist/index.html")
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("templates/login.html")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	botUsername := os.Getenv("TELEGRAM_BOT_USERNAME")
-	tmpl.Execute(w, map[string]interface{}{
-		"BotUsername": botUsername,
-	})
+	http.ServeFile(w, r, "frontend/dist/index.html")
 }
 
 func vanlinhHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("templates/vanlinh.html")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	tmpl.Execute(w, nil)
+	http.ServeFile(w, r, "frontend/dist/index.html")
 }
 
 func apiLoginAdminHandler(w http.ResponseWriter, r *http.Request) {
@@ -1015,11 +996,14 @@ func apiStatsHandler(w http.ResponseWriter, r *http.Request) {
 		sacAPI = "https://sac-1-qg37.onrender.com"
 	}
 
+	botUsername := os.Getenv("TELEGRAM_BOT_USERNAME")
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"sites_count":   sc,
 		"proxies_count": pc,
 		"api_url":       sacAPI,
+		"bot_username":  botUsername,
 	})
 }
 
@@ -1709,6 +1693,13 @@ func main() {
 	// Serve static files (Flask default static directory)
 	fs := http.FileServer(http.Dir("static"))
 	mux.Handle("/static/", http.StripPrefix("/static/", fs))
+
+	// Serve React compiled static assets
+	assetsFS := http.FileServer(http.Dir("frontend/dist"))
+	mux.Handle("/assets/", assetsFS)
+	mux.HandleFunc("/favicon.svg", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "frontend/dist/favicon.svg")
+	})
 
 	mux.HandleFunc("/", requireLogin(indexHandler))
 	mux.HandleFunc("/login", requireLogin(loginHandler))
