@@ -117,7 +117,7 @@ export default function App() {
   // Auto scroll console to bottom
   useEffect(() => {
     if (isRunning && consoleEndRef.current) {
-      consoleEndRef.current.scrollIntoView({ behavior: 'smooth' })
+      consoleEndRef.current.scrollIntoView({ behavior: 'auto' }) // ponytail: use 'auto' scroll behavior to prevent smooth-scrolling CPU lag on mobile
     }
   }, [results, isRunning])
 
@@ -655,9 +655,9 @@ export default function App() {
 
       {/* Navigation Header */}
       <header className="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-[1600px] mx-auto px-6 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-6">
-            <div className="font-mono font-bold text-lg tracking-wider text-white">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-col sm:flex-row gap-3 justify-between items-center">
+          <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 w-full sm:w-auto">
+            <div className="font-mono font-bold text-base sm:text-lg tracking-wider text-white">
               MLSN <span className="text-cyan-400">//</span> WEB CHECKER
             </div>
             
@@ -685,16 +685,16 @@ export default function App() {
             )}
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6 w-full sm:w-auto justify-center sm:justify-end">
             {/* Status indicators */}
-            <div className="flex items-center gap-5 font-mono text-[10px] text-slate-400">
+            <div className="flex flex-wrap justify-center items-center gap-3 sm:gap-5 font-mono text-[10px] text-slate-400">
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full shadow-[0_0_8px_#00ffd1]" />
                 <span>SITES: <strong className="text-slate-200">{statsData.sites_count}</strong></span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full shadow-[0_0_8px_#00ffd1]" />
-                <span>PROXIES: <strong className="text-slate-200">{userProxies.length}</strong></span>
+                <span className="w-1.5 h-1.5 bg-purple-400 rounded-full shadow-[0_0_8px_#d946ef]" />
+                <span>PROXIES: <strong className="text-slate-200">{userProxies.length > 0 ? userProxies.length : statsData.proxies_count}</strong></span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className={`w-1.5 h-1.5 rounded-full ${apiOnline ? 'bg-cyan-400 shadow-[0_0_8px_#00ffd1]' : 'bg-red-500 shadow-[0_0_8px_#ff3e6c]'}`} />
@@ -1148,14 +1148,14 @@ export default function App() {
               </div>
 
               {/* Console Logs Lists */}
-              <div className="flex-1 min-h-[480px] bg-slate-950 p-2 overflow-y-auto flex flex-col font-mono text-[11px]">
+              <div className="flex-1 min-h-[350px] md:min-h-[480px] bg-slate-950 p-2 overflow-y-auto flex flex-col font-mono text-[10px] md:text-[11px]">
                 {filteredResults.length === 0 ? (
                   <div className="text-slate-600 italic text-center my-auto py-12">
                     // Console is idle. Waiting for checking input...
                   </div>
                 ) : (
                   <div className="flex flex-col">
-                    {filteredResults.map((r, i) => {
+                    {filteredResults.slice(-200).map((r, i) => { // ponytail: slice latest 200 items to prevent DOM lag on mobile
                       const timeVal = r.timestamp || '--:--:--'
                       let displayStatus = r.status
                       if (displayStatus === 'OTP_REQUIRED') displayStatus = '3DS'
@@ -1188,16 +1188,16 @@ export default function App() {
                       }
 
                       return (
-                        <div key={i} className="flex items-center gap-3 px-4 py-1.5 border-b border-slate-900/50 hover:bg-slate-900/20 transition-all whitespace-nowrap overflow-x-auto animate-slide-up">
-                          <span className="text-slate-600 text-[10px] shrink-0">[{timeVal}]</span>
-                          <span className={`px-2 py-0.5 border text-[9px] font-bold rounded uppercase shrink-0 ${statusBg}`}>
+                        <div key={i} className="flex flex-wrap md:flex-nowrap items-center gap-x-2 md:gap-x-3 gap-y-1 px-3 py-2 border-b border-slate-900/50 hover:bg-slate-900/20 transition-all whitespace-normal md:whitespace-nowrap animate-slide-up">
+                          <span className="text-slate-600 text-[9px] shrink-0">[{timeVal}]</span>
+                          <span className={`px-1.5 py-0.5 border text-[8px] font-bold rounded uppercase shrink-0 ${statusBg}`}>
                             [{displayStatus}]
                           </span>
-                          <span className="text-slate-200 shrink-0 font-medium">{r.card}</span>
-                          <span className="text-slate-400 overflow-hidden text-ellipsis flex-1">&gt; {r.msg}</span>
-                          <span className={`font-bold shrink-0 ${colorClass}`}>{r.price}</span>
-                          <span className="text-slate-600 text-[10px] shrink-0">{r.gateway}</span>
-                          <span className="text-cyan-500/70 text-[10px] shrink-0">{r.site}</span>
+                          <span className="text-slate-200 shrink-0 font-medium text-[10px] md:text-[11px]">{r.card}</span>
+                          <span className="text-slate-400 text-[10px] overflow-hidden text-ellipsis flex-1 min-w-[150px] md:min-w-0">&gt; {r.msg}</span>
+                          <span className={`font-bold shrink-0 text-[10px] md:text-[11px] ${colorClass}`}>{r.price}</span>
+                          <span className="text-slate-600 text-[9px] shrink-0">{r.gateway}</span>
+                          <span className="text-cyan-500/70 text-[9px] shrink-0">{r.site}</span>
                         </div>
                       )
                     })}
