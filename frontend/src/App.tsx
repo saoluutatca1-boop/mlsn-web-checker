@@ -30,6 +30,7 @@ interface Stats {
   sites_count: number
   proxies_count: number
   api_url: string
+  bot_username?: string
 }
 
 interface DBInfo {
@@ -739,33 +740,55 @@ export default function App() {
               </div>
 
               {activeLoginTab === 'telegram' ? (
-                <div className="flex flex-col gap-4 font-mono">
-                  <div className="border border-slate-900 bg-slate-950/40 rounded p-3 text-[10px] text-yellow-400/80 flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-yellow-500 shrink-0" />
-                    <span>Using mock login as fallback since Telegram Widget is restricted to static hostname bindings in this environment.</span>
-                  </div>
-                  
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] uppercase tracking-wider text-slate-400">Telegram Username</label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
-                      <input 
-                        type="text" 
-                        placeholder="@yourusername"
-                        value={mockUsername}
-                        onChange={(e) => setMockUsername(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-900 rounded px-3 py-2.5 pl-10 text-sm text-slate-200 outline-none focus:border-cyan-500/50 transition-all placeholder:text-slate-600"
-                      />
+                statsData.bot_username ? (
+                  <div className="flex flex-col gap-4 font-mono text-center">
+                    <div className="border border-slate-900 bg-cyan-950/20 rounded p-4 text-xs text-cyan-400 flex flex-col gap-3 text-left">
+                      <div className="flex items-center gap-2 font-bold text-white">
+                        <Server className="w-4 h-4 text-cyan-400" /> TELEGRAM BOT SYSTEM ACTIVE
+                      </div>
+                      <p className="text-slate-300 text-[11px] leading-relaxed">
+                        To log in securely, message your Telegram bot and send the <code className="text-cyan-300">/login</code> or <code className="text-cyan-300">/start</code> command. The bot will send you a secure button to log in here.
+                      </p>
                     </div>
+                    
+                    <a 
+                      href={`https://t.me/${statsData.bot_username}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_15px_rgba(0,255,209,0.3)] text-center no-underline cursor-pointer"
+                    >
+                      <Terminal className="w-4 h-4" /> CHAT WITH BOT @{statsData.bot_username}
+                    </a>
                   </div>
-                  
-                  <button 
-                    onClick={handleMockLogin}
-                    className="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_15px_rgba(0,255,209,0.3)]"
-                  >
-                    <Terminal className="w-4 h-4" /> LOG IN VIA TELEGRAM
-                  </button>
-                </div>
+                ) : (
+                  <div className="flex flex-col gap-4 font-mono">
+                    <div className="border border-slate-900 bg-slate-950/40 rounded p-3 text-[10px] text-yellow-400/80 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-yellow-500 shrink-0" />
+                      <span>Using mock login as fallback since Telegram Widget is restricted to static hostname bindings in this environment.</span>
+                    </div>
+                    
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] uppercase tracking-wider text-slate-400">Telegram Username</label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
+                        <input 
+                          type="text" 
+                          placeholder="@yourusername"
+                          value={mockUsername}
+                          onChange={(e) => setMockUsername(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-900 rounded px-3 py-2.5 pl-10 text-sm text-slate-200 outline-none focus:border-cyan-500/50 transition-all placeholder:text-slate-600"
+                        />
+                      </div>
+                    </div>
+                    
+                    <button 
+                      onClick={handleMockLogin}
+                      className="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_15px_rgba(0,255,209,0.3)]"
+                    >
+                      <Terminal className="w-4 h-4" /> LOG IN VIA TELEGRAM
+                    </button>
+                  </div>
+                )
               ) : (
                 <form onSubmit={handleAdminLogin} className="flex flex-col gap-4 font-mono">
                   <div className="flex flex-col gap-1.5">

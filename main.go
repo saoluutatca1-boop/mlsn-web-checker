@@ -183,6 +183,13 @@ func initDB() {
 			id SERIAL PRIMARY KEY,
 			proxy TEXT UNIQUE NOT NULL
 		);
+		CREATE TABLE IF NOT EXISTS web_login_tokens (
+			token TEXT PRIMARY KEY,
+			user_id BIGINT NOT NULL,
+			username TEXT,
+			first_name TEXT,
+			expiry TIMESTAMP WITH TIME ZONE NOT NULL
+		);
 	`)
 	if err != nil {
 		log.Println("DB table creation failed:", err)
@@ -835,6 +842,96 @@ func verifyTelegramAuth(authData map[string]string, botToken string) bool {
 	return computedHash == checkHash
 }
 
+type PendingLogin struct {
+	ID        int64
+	Username  string
+	FirstName string
+	Expiry    time.Time
+}
+
+func isTelegramUserAllowed(userID int64) bool {
+	if db == nil {
+		if os.Getenv("TELEGRAM_BOT_TOKEN") == "" {
+			return true
+		}
+		return false
+	}
+	
+	var exists bool
+	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM allowed_users WHERE user_id = $1)", userID).Scan(&exists)
+	if err == nil && exists {
+		return true
+	}
+	
+	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE user_id = $1)", userID).Scan(&exists)
+	if err == nil && exists {
+		return true
+	}
+	
+	return false
+}
+
+func apiLoginTokenHandler(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "Token is required", http.StatusBadRequest)
+		return
+	}
+
+	if db == nil {
+		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	var pending PendingLogin
+	err := db.QueryRow("SELECT user_id, username, first_name, expiry FROM web_login_tokens WHERE token = $1", token).Scan(&pending.ID, &pending.Username, &pending.FirstName, &pending.Expiry)
+	
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Invalid or expired login link", http.StatusUnauthorized)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Delete token immediately to ensure single-use
+	_, _ = db.Exec("DELETE FROM web_login_tokens WHERE token = $1", token)
+
+	if time.Now().After(pending.Expiry) {
+		http.Error(w, "Login link has expired", http.StatusUnauthorized)
+		return
+	}
+
+	user := pending.Username
+	if user == "" {
+		user = pending.FirstName
+	}
+	if user == "" {
+		user = fmt.Sprintf("tg_%d", pending.ID)
+	}
+
+	uLower := strings.ToLower(user)
+	isAdminUser := uLower == "vanlinhcute" || uLower == "hthcte" || uLower == "@hthcte"
+
+	// Enforce database-based access control for non-admins
+	if !isAdminUser && !isTelegramUserAllowed(pending.ID) {
+		http.Error(w, "Access Denied: You are not authorized to use this checker. Please register/add via the Telegram bot.", http.StatusForbidden)
+		return
+	}
+
+	sessionData := map[string]interface{}{
+		"user": user,
+	}
+	
+	if isAdminUser {
+		sessionData["admin"] = true
+	}
+
+	setSession(w, sessionData)
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "frontend/dist/index.html")
 }
@@ -931,6 +1028,15 @@ func apiLoginTelegramHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiLoginMockHandler(w http.ResponseWriter, r *http.Request) {
+	if os.Getenv("TELEGRAM_BOT_TOKEN") != "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Mock login is disabled in production",
+		})
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1705,6 +1811,7 @@ func main() {
 	mux.HandleFunc("/api/login/admin", apiLoginAdminHandler)
 	mux.HandleFunc("/api/login/telegram", apiLoginTelegramHandler)
 	mux.HandleFunc("/api/login/mock", apiLoginMockHandler)
+	mux.HandleFunc("/api/login/token", apiLoginTokenHandler)
 	mux.HandleFunc("/logout", logoutHandler)
 
 	mux.HandleFunc("/api/stats", requireLogin(apiStatsHandler))
