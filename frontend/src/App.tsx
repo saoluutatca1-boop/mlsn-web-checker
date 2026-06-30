@@ -4,7 +4,7 @@ import {
   LogOut, Lock, User, Terminal, Server, ShieldCheck, CheckCircle2, AlertCircle,
   Menu, Download, Copy
 } from 'lucide-react'
-import { PixelAvatar, AvatarCustomizer, FACES, EYES, MOUTHS, HAIRS, ACCESSORIES } from './PixelAvatars'
+import { PixelAvatar, AvatarCustomizer, AVATAR_TEMPLATES } from './PixelAvatars'
 // Types based on the Go backend API
 interface Card {
   cc: string
@@ -361,25 +361,19 @@ export default function App() {
   const [cpmHistory, setCpmHistory] = useState<{ time: string, cpm: number }[]>([])
   const lastCheckedCountRef = useRef(0)
 
-  const [customAvatarConfig, setCustomAvatarConfig] = useState<{
-    face: number
-    eyes: number
-    mouth: number
-    hair: number
-    acc: number
-  } | null>(null)
+  const [customAvatarIndex, setCustomAvatarIndex] = useState<number | null>(null)
   const [isCustomizerOpen, setIsCustomizerOpen] = useState(false)
 
   const loadCustomAvatar = (username: string) => {
     try {
       const stored = localStorage.getItem(`mlsn_avatar_${username}`)
-      if (stored) {
-        setCustomAvatarConfig(JSON.parse(stored))
+      if (stored !== null) {
+        setCustomAvatarIndex(parseInt(stored))
       } else {
-        setCustomAvatarConfig(null)
+        setCustomAvatarIndex(null)
       }
     } catch (e) {
-      setCustomAvatarConfig(null)
+      setCustomAvatarIndex(null)
     }
   }
 
@@ -1367,7 +1361,7 @@ export default function App() {
                     <PixelAvatar 
                       username={user || "guest"} 
                       size={28} 
-                      customConfig={customAvatarConfig || undefined} 
+                      customIndex={customAvatarIndex !== null ? customAvatarIndex : undefined} 
                     />
                     <div className="absolute inset-0 bg-cyan-500/30 opacity-0 group-hover:opacity-100 rounded-lg flex items-center justify-center transition-opacity">
                       <span className="text-[6.5px] text-white font-bold uppercase tracking-wider bg-slate-950/85 px-1 py-0.5 rounded border border-cyan-500/40 scale-75">
@@ -2146,26 +2140,19 @@ export default function App() {
           <AvatarCustomizer 
             username={user || "guest"}
             onClose={() => setIsCustomizerOpen(false)}
-            currentConfig={customAvatarConfig || (() => {
+            currentIndex={customAvatarIndex !== null ? customAvatarIndex : (() => {
               const name = user ? user.trim() : "guest"
               let hash = 0
               for (let i = 0; i < name.length; i++) {
                 hash = name.charCodeAt(i) + ((hash << 5) - hash)
               }
-              const seed = Math.abs(hash)
-              return {
-                face: seed % FACES.length,
-                eyes: (seed >> 2) % EYES.length,
-                mouth: (seed >> 4) % MOUTHS.length,
-                hair: (seed >> 6) % HAIRS.length,
-                acc: (seed >> 8) % ACCESSORIES.length
-              }
+              return Math.abs(hash) % AVATAR_TEMPLATES.length
             })()}
-            onSave={(config) => {
-              setCustomAvatarConfig(config)
-              localStorage.setItem(`mlsn_avatar_${user}`, JSON.stringify(config))
+            onSave={(index) => {
+              setCustomAvatarIndex(index)
+              localStorage.setItem(`mlsn_avatar_${user}`, index.toString())
               setIsCustomizerOpen(false)
-              showToast("Avatar customized successfully! / Đã lưu thiết kế hình đại diện mới.")
+              showToast("Avatar customized successfully! / Đã chọn hình đại diện mới.")
             }}
           />
         )}
