@@ -4,7 +4,7 @@ import {
   LogOut, Lock, User, Terminal, Server, ShieldCheck, CheckCircle2, AlertCircle,
   Menu, Download, Copy
 } from 'lucide-react'
-
+import { PixelAvatar } from './PixelAvatars'
 // Types based on the Go backend API
 interface Card {
   cc: string
@@ -1331,9 +1331,7 @@ export default function App() {
               {/* User Session card */}
               <div className="flex items-center justify-between bg-slate-900/30 border border-slate-905/40 rounded-xl p-2.5">
                 <div className="flex items-center gap-2 overflow-hidden">
-                  <div className="w-7 h-7 rounded-lg bg-cyan-950 border border-cyan-800/40 flex items-center justify-center shrink-0">
-                    <User className="w-3.5 h-3.5 text-cyan-455" />
-                  </div>
+                  <PixelAvatar username={user} size={28} />
                   <div className="flex flex-col overflow-hidden">
                     <span className="text-[10px] text-slate-250 font-bold truncate uppercase">{user}</span>
                     <span className="text-[8px] text-slate-500 truncate">{isAdmin ? 'ADMIN' : 'USER'}</span>
