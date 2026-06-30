@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { 
   Play, Square, Trash2, Plus, X, UploadCloud, Database, 
   LogOut, Lock, User, Terminal, Server, ShieldCheck, CheckCircle2, AlertCircle,
-  Menu, Download
+  Menu, Download, Copy
 } from 'lucide-react'
 
 // Types based on the Go backend API
@@ -1125,6 +1125,45 @@ export default function App() {
     setProgressStatus('PREPARING ENVIRONMENT...')
   }
 
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(`Copied card: ${text.slice(0, 16)}...`)
+    }).catch(err => {
+      console.error('Failed to copy to clipboard:', err)
+      showToast("Failed to copy to clipboard", "err")
+    })
+  }
+
+  const copyAllCardsByStatus = (status: string) => {
+    // If status is a category, we map matching records:
+    let filtered = results
+    if (status === 'CHARGED') {
+      filtered = results.filter(r => r.status === 'CHARGED')
+    } else if (status === 'LIVE') {
+      filtered = results.filter(r => r.status === 'LIVE')
+    } else if (status === 'OTP_REQUIRED') {
+      filtered = results.filter(r => r.status === 'OTP_REQUIRED')
+    } else if (status === 'LOW_BALANCE') {
+      filtered = results.filter(r => r.status === 'LOW_BALANCE')
+    } else if (status === 'ALL_SUCCESS') {
+      // All successful (non-error, non-declined, non-fraud)
+      filtered = results.filter(r => ['CHARGED', 'LIVE', 'OTP_REQUIRED', 'LOW_BALANCE'].includes(r.status))
+    }
+
+    const cardsText = filtered.map(r => r.card).join('\n')
+    if (!cardsText) {
+      showToast("No cards to copy for this status / Không có thẻ nào để copy.", "err")
+      return
+    }
+
+    navigator.clipboard.writeText(cardsText).then(() => {
+      showToast(`Copied ${filtered.length} cards to clipboard! / Đã copy ${filtered.length} thẻ.`)
+    }).catch(err => {
+      console.error('Failed to copy cards:', err)
+      showToast("Failed to copy cards", "err")
+    })
+  }
+
   const filterR = (f: string | null) => {
     setActiveFilter(f)
   }
@@ -1747,6 +1786,18 @@ export default function App() {
                   }`}
                 >
                   CHARGED: <span className="font-bold">{counters.charged}</span>
+                  {counters.charged > 0 && (
+                    <span 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        copyAllCardsByStatus('CHARGED');
+                      }}
+                      className="ml-1 p-0.5 hover:bg-emerald-500/20 rounded transition-all cursor-pointer"
+                      title="Copy all CHARGED cards"
+                    >
+                      <Copy className="w-2.5 h-2.5" />
+                    </span>
+                  )}
                 </button>
                 <button 
                   onClick={() => filterR('LIVE')}
@@ -1757,6 +1808,18 @@ export default function App() {
                   }`}
                 >
                   LIVE: <span className="font-bold">{counters.live}</span>
+                  {counters.live > 0 && (
+                    <span 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        copyAllCardsByStatus('LIVE');
+                      }}
+                      className="ml-1 p-0.5 hover:bg-cyan-500/20 rounded transition-all cursor-pointer"
+                      title="Copy all LIVE cards"
+                    >
+                      <Copy className="w-2.5 h-2.5" />
+                    </span>
+                  )}
                 </button>
                 <button 
                   onClick={() => filterR('FRAUD')}
@@ -1787,6 +1850,18 @@ export default function App() {
                   }`}
                 >
                   3DS: <span className="font-bold">{counters.otp}</span>
+                  {counters.otp > 0 && (
+                    <span 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        copyAllCardsByStatus('OTP_REQUIRED');
+                      }}
+                      className="ml-1 p-0.5 hover:bg-blue-500/20 rounded transition-all cursor-pointer"
+                      title="Copy all 3DS cards"
+                    >
+                      <Copy className="w-2.5 h-2.5" />
+                    </span>
+                  )}
                 </button>
                 <button 
                   onClick={() => filterR('LOW_BALANCE')}
@@ -1797,6 +1872,18 @@ export default function App() {
                   }`}
                 >
                   LOW: <span className="font-bold">{counters.low}</span>
+                  {counters.low > 0 && (
+                    <span 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        copyAllCardsByStatus('LOW_BALANCE');
+                      }}
+                      className="ml-1 p-0.5 hover:bg-purple-500/20 rounded transition-all cursor-pointer"
+                      title="Copy all LOW balance cards"
+                    >
+                      <Copy className="w-2.5 h-2.5" />
+                    </span>
+                  )}
                 </button>
                 <button 
                   onClick={() => filterR('ERR')}
@@ -1808,6 +1895,16 @@ export default function App() {
                 >
                   ERR: <span className="font-bold">{counters.err}</span>
                 </button>
+
+                {(counters.charged > 0 || counters.live > 0 || counters.otp > 0 || counters.low > 0) && (
+                  <button 
+                    onClick={() => copyAllCardsByStatus('ALL_SUCCESS')}
+                    className="px-2.5 py-1 bg-cyan-950/20 hover:bg-cyan-500/15 border border-cyan-500/25 text-cyan-400 rounded-lg flex items-center gap-1 transition-all duration-200 active:scale-95 cursor-pointer ml-auto text-[8px]"
+                    title="Copy all approved cards (Charged, Live, 3DS, Low)"
+                  >
+                    <Copy className="w-2.5 h-2.5" /> COPY ALL APPROVED
+                  </button>
+                )}
               </div>
 
               {/* Console Logs Lists */}
@@ -1856,8 +1953,12 @@ export default function App() {
                           <span className={`px-2 py-0.5 border text-[8px] font-bold rounded-lg uppercase shrink-0 ${statusBg}`}>
                             [{displayStatus}]
                           </span>
-                          <div className="flex flex-col shrink-0 min-w-[130px]">
-                            <span className="text-slate-200 font-semibold text-[10.5px] md:text-[11.5px] tracking-wide">{r.card}</span>
+                          <div 
+                            onClick={() => copyToClipboard(r.card)}
+                            className="flex flex-col shrink-0 min-w-[130px] cursor-pointer hover:text-cyan-455 active:scale-95 duration-100 transition-all select-none"
+                            title="Click to copy card / Bấm để copy thẻ"
+                          >
+                            <span className="text-slate-200 font-semibold text-[10.5px] md:text-[11.5px] tracking-wide hover:underline">{r.card}</span>
                             {r.bin_brand && (
                               <span className="text-[7.5px] text-cyan-400/90 font-bold uppercase tracking-wide mt-0.5">
                                 {r.bin_brand} • {r.bin_type || "N/A"} • {r.bin_class || "CLASSIC"} • {r.bin_bank || "BANK"} ({r.bin_country || "N/A"})
