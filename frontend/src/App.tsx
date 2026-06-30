@@ -317,6 +317,30 @@ function VisualAnalytics({ results, counters, cpmHistory }: {
 }
 
 export default function App() {
+  // Mobile performance mode
+  const [mobileMode, setMobileMode] = useState<'standard' | 'lite'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('mlsn_mobile_mode')
+      if (saved === 'standard' || saved === 'lite') {
+        return saved
+      }
+    }
+    return 'lite' // Default to 'lite' on mobile for super smooth performance
+  })
+
+  const handleMobileModeChange = (newMode: 'standard' | 'lite') => {
+    setMobileMode(newMode)
+    localStorage.setItem('mlsn_mobile_mode', newMode)
+  }
+
+  useEffect(() => {
+    if (mobileMode === 'lite') {
+      document.body.classList.add('mode-lite')
+    } else {
+      document.body.classList.remove('mode-lite')
+    }
+  }, [mobileMode])
+
   // Navigation & Auth
   const [tab, setTab] = useState<'checker' | 'admin' | 'login'>(() => {
     if (typeof window !== 'undefined') {
@@ -1208,9 +1232,16 @@ export default function App() {
   return (
     <div className="min-h-screen bg-transparent text-slate-200 flex flex-col md:flex-row selection:bg-cyan-500/30 selection:text-cyan-300 relative overflow-x-hidden">
       {/* Background Gradients */}
-      <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.012)_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
-      <div className="absolute top-0 right-1/4 w-[600px] h-[600px] bg-cyan-500/5 blur-[160px] rounded-full pointer-events-none" />
-      <div className="absolute bottom-0 left-1/4 w-[600px] h-[600px] bg-purple-500/5 blur-[160px] rounded-full pointer-events-none" />
+      {mobileMode !== 'lite' && (
+        <>
+          <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.012)_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
+          <div className="absolute top-0 right-1/4 w-[600px] h-[600px] bg-cyan-500/5 blur-[160px] rounded-full pointer-events-none" />
+          <div className="absolute bottom-0 left-1/4 w-[600px] h-[600px] bg-purple-500/5 blur-[160px] rounded-full pointer-events-none" />
+        </>
+      )}
+      {mobileMode === 'lite' && (
+        <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.005)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
+      )}
 
       {/* Toast Notifications */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
@@ -1235,7 +1266,9 @@ export default function App() {
       {user && (
         <>
           {/* Mobile Sticky Header */}
-          <div className="flex md:hidden items-center justify-between px-5 py-3.5 bg-slate-955/85 backdrop-blur-md border-b border-slate-900/60 sticky top-0 z-30 w-full shrink-0">
+          <div className={`flex md:hidden items-center justify-between px-5 py-3.5 border-b border-slate-900/60 sticky top-0 z-30 w-full shrink-0 ${
+            mobileMode === 'lite' ? 'bg-slate-950/95' : 'bg-slate-955/85 backdrop-blur-md'
+          }`}>
             <Logo size="sm" />
             
             <div className="flex items-center gap-4">
@@ -1256,7 +1289,9 @@ export default function App() {
           {sidebarOpen && (
             <div 
               onClick={() => setSidebarOpen(false)}
-              className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-40 md:hidden animate-fade-in"
+              className={`fixed inset-0 bg-slate-955/70 z-40 md:hidden animate-fade-in ${
+                mobileMode === 'lite' ? '' : 'backdrop-blur-sm'
+              }`}
             />
           )}
 
@@ -1390,6 +1425,43 @@ export default function App() {
 
       {/* Main View Area */}
       <main className={`flex-1 p-4 md:p-6 flex flex-col min-w-0 ${user ? 'w-full' : 'max-w-md w-full mx-auto my-auto py-12'}`}>
+        
+        {/* Mobile Performance Toggle (Only on Mobile) */}
+        <div className="block md:hidden bg-slate-950/60 border border-slate-900/60 rounded-xl p-2.5 mb-4 shadow-lg backdrop-blur-none shrink-0 select-none">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col pl-1">
+              <span className="font-tech text-[9.5px] font-bold text-white tracking-wider">MOBILE PERFORMANCE</span>
+              <span className="text-[8px] text-slate-500 font-mono">
+                {mobileMode === 'lite' ? 'Lite Mode: Optimized & Smooth' : 'Standard Mode: Glass UI Effects'}
+              </span>
+            </div>
+            <div className="flex bg-slate-955 border border-slate-900/60 p-0.5 rounded-lg text-[9px] font-tech font-bold relative overflow-hidden w-36 h-6 items-center">
+              <div 
+                className={`absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-1px)] rounded-md bg-white/10 border border-white/20 transition-all duration-300 ${
+                  mobileMode === 'standard' ? 'translate-x-0' : 'translate-x-full'
+                }`} 
+              />
+              <button 
+                type="button"
+                onClick={() => handleMobileModeChange('standard')}
+                className={`flex-1 h-full rounded-md z-10 transition-all text-center text-[9px] font-bold ${
+                  mobileMode === 'standard' ? 'text-white' : 'text-slate-500'
+                }`}
+              >
+                STD
+              </button>
+              <button 
+                type="button"
+                onClick={() => handleMobileModeChange('lite')}
+                className={`flex-1 h-full rounded-md z-10 transition-all text-center text-[9px] font-bold ${
+                  mobileMode === 'lite' ? 'text-cyan-400' : 'text-slate-500'
+                }`}
+              >
+                LITE
+              </button>
+            </div>
+          </div>
+        </div>
         
         {/* Tab: LOGIN */}
         {tab === 'login' && (
