@@ -29,8 +29,6 @@ WORKDIR /app
 
 COPY --from=backend-builder /app/mlsn-web-checker .
 COPY --from=backend-builder /app/frontend/dist ./frontend/dist
-COPY --from=backend-builder /app/static ./static
-COPY --from=backend-builder /app/data ./data
 COPY --from=backend-builder /app/start.sh .
 
 RUN chmod +x start.sh

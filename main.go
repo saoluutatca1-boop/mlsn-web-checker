@@ -1690,9 +1690,6 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Serve static files (Flask default static directory)
-	fs := http.FileServer(http.Dir("static"))
-	mux.Handle("/static/", http.StripPrefix("/static/", fs))
 
 	// Serve React compiled static assets
 	assetsFS := http.FileServer(http.Dir("frontend/dist"))
