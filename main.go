@@ -969,10 +969,15 @@ func apiLoginTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete token immediately to ensure single-use
-	_, _ = db.Exec("DELETE FROM web_login_tokens WHERE token = $1", token)
+	// Update token expiry to 15 seconds from now if it is not already set to a short duration.
+	// This provides a grace period to handle Telegram's link preview crawlers making double requests.
+	graceExpiry := time.Now().Add(15 * time.Second)
+	if pending.Expiry.Sub(time.Now()) > 20*time.Second {
+		_, _ = db.Exec("UPDATE web_login_tokens SET expiry = $1 WHERE token = $2", graceExpiry, token)
+	}
 
 	if time.Now().After(pending.Expiry) {
+		_, _ = db.Exec("DELETE FROM web_login_tokens WHERE token = $1", token)
 		http.Error(w, "Login link has expired", http.StatusUnauthorized)
 		return
 	}
