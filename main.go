@@ -861,6 +861,24 @@ func requireLogin(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionData := getSession(r)
+		var admin interface{}
+		if sessionData != nil {
+			admin = sessionData["admin"]
+		}
+
+		if admin != true {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Forbidden: Admin access required"})
+			return
+		}
+		next(w, r)
+	}
+}
+
 func verifyTelegramAuth(authData map[string]string, botToken string) bool {
 	checkHash := authData["hash"]
 	if checkHash == "" || botToken == "" {
@@ -1916,15 +1934,15 @@ func main() {
 	mux.HandleFunc("/api/sites/clear", requireLogin(apiClearSitesHandler))
 	mux.HandleFunc("/api/proxies/clear", requireLogin(apiClearProxiesHandler))
 
-	mux.HandleFunc("/api/admin/db_info", requireLogin(apiAdminDBInfoHandler))
-	mux.HandleFunc("/api/admin/site/add", requireLogin(apiAdminAddSiteHandler))
-	mux.HandleFunc("/api/admin/site/delete", requireLogin(apiAdminDeleteSiteHandler))
-	mux.HandleFunc("/api/admin/proxy/add", requireLogin(apiAdminAddProxyHandler))
-	mux.HandleFunc("/api/admin/proxy/delete", requireLogin(apiAdminDeleteProxyHandler))
-	mux.HandleFunc("/api/admin/site/upload", requireLogin(apiAdminUploadSitesHandler))
-	mux.HandleFunc("/api/admin/site/clear", requireLogin(apiAdminClearSitesHandler))
-	mux.HandleFunc("/api/admin/proxy/upload", requireLogin(apiAdminUploadProxiesHandler))
-	mux.HandleFunc("/api/admin/proxy/clear", requireLogin(apiAdminClearProxiesHandler))
+	mux.HandleFunc("/api/admin/db_info", requireLogin(requireAdmin(apiAdminDBInfoHandler)))
+	mux.HandleFunc("/api/admin/site/add", requireLogin(requireAdmin(apiAdminAddSiteHandler)))
+	mux.HandleFunc("/api/admin/site/delete", requireLogin(requireAdmin(apiAdminDeleteSiteHandler)))
+	mux.HandleFunc("/api/admin/proxy/add", requireLogin(requireAdmin(apiAdminAddProxyHandler)))
+	mux.HandleFunc("/api/admin/proxy/delete", requireLogin(requireAdmin(apiAdminDeleteProxyHandler)))
+	mux.HandleFunc("/api/admin/site/upload", requireLogin(requireAdmin(apiAdminUploadSitesHandler)))
+	mux.HandleFunc("/api/admin/site/clear", requireLogin(requireAdmin(apiAdminClearSitesHandler)))
+	mux.HandleFunc("/api/admin/proxy/upload", requireLogin(requireAdmin(apiAdminUploadProxiesHandler)))
+	mux.HandleFunc("/api/admin/proxy/clear", requireLogin(requireAdmin(apiAdminClearProxiesHandler)))
 
 	port := os.Getenv("PORT")
 	if port == "" {

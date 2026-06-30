@@ -989,11 +989,17 @@ export default function App() {
                         <X className="w-3 h-3" /> CLR
                       </button>
                     </div>
-                    <div className="bg-slate-950/80 border border-slate-900 rounded p-2 text-[10px] text-slate-400 h-16 overflow-y-auto">
+                    <div className="bg-slate-950/80 border border-slate-900 rounded p-2 text-[10px] text-slate-400 h-16 overflow-y-auto flex flex-col justify-center">
                       {statsData.sites_count > 0 ? (
-                        <div className="text-cyan-400/90 font-bold">{statsData.sites_count} ACTIVE</div>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="text-emerald-400 font-bold flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                            {statsData.sites_count} AUTO-DATABASE
+                          </div>
+                          <span className="text-[9px] text-slate-500">Synced with Telegram Bot</span>
+                        </div>
                       ) : (
-                        <div className="text-slate-600 italic">EMPTY POOL</div>
+                        <div className="text-slate-600 italic text-center">EMPTY POOL</div>
                       )}
                     </div>
                   </div>
@@ -1018,11 +1024,25 @@ export default function App() {
                         <X className="w-3 h-3" /> CLR
                       </button>
                     </div>
-                    <div className="bg-slate-950/80 border border-slate-900 rounded p-2 text-[10px] text-slate-400 h-16 overflow-y-auto">
+                    <div className="bg-slate-950/80 border border-slate-900 rounded p-2 text-[10px] text-slate-400 h-16 overflow-y-auto flex flex-col justify-center">
                       {userProxies.length > 0 ? (
-                        <div className="text-cyan-400/90 font-bold">{userProxies.length} ACTIVE</div>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="text-cyan-400 font-bold flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full" />
+                            {userProxies.length} CUSTOM ACTIVE
+                          </div>
+                          <span className="text-[9px] text-slate-500">Using uploaded proxy list</span>
+                        </div>
+                      ) : statsData.proxies_count > 0 ? (
+                        <div className="flex flex-col gap-0.5">
+                          <div className="text-emerald-400 font-bold flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                            {statsData.proxies_count} AUTO-DATABASE
+                          </div>
+                          <span className="text-[9px] text-slate-500">Synced with Telegram Bot</span>
+                        </div>
                       ) : (
-                        <div className="text-slate-600 italic">0 ACTIVE</div>
+                        <div className="text-slate-600 italic text-center">0 ACTIVE (NO PROXY)</div>
                       )}
                     </div>
                   </div>
