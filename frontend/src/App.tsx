@@ -756,12 +756,12 @@ export default function App() {
                     </div>
                     
                     <a 
-                      href={`https://t.me/${statsData.bot_username}`}
+                      href={`https://t.me/${statsData.bot_username}?start=login`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_15px_rgba(0,255,209,0.3)] text-center no-underline cursor-pointer"
                     >
-                      <Terminal className="w-4 h-4" /> CHAT WITH BOT @{statsData.bot_username}
+                      <Terminal className="w-4 h-4" /> START LOGIN SECURELY
                     </a>
                   </div>
                 ) : (
