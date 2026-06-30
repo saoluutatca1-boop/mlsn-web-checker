@@ -1272,7 +1272,7 @@ export default function App() {
             <div className="flex items-center justify-between pb-5 border-b border-slate-900/60 mb-6 shrink-0">
               <div className="flex flex-col">
                 <Logo size="md" />
-                <span className="font-tech text-[8px] text-slate-500 uppercase tracking-widest mt-2 ml-1">WEB ENGINE CLIENT v1.4.0</span>
+                <span className="font-tech text-[8px] text-slate-500 uppercase tracking-widest mt-2 ml-1">WEB ENGINE CLIENT v0.1.220511</span>
               </div>
               
               <button 
@@ -2133,7 +2133,7 @@ export default function App() {
 
         {/* Footnote */}
         <footer className="text-center mt-auto pt-6 pb-2 text-slate-600 font-mono text-[9px] shrink-0 border-t border-slate-900/40">
-          MLSN // CONSOLE RUNNER CLIENT v1.4.0 &copy; 2026
+          MLSN // CONSOLE RUNNER CLIENT v0.1.220511 &copy; 2026
         </footer>
 
         {isCustomizerOpen && (
