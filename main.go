@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -13,10 +15,12 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -193,6 +197,18 @@ func initDB() {
 			username TEXT,
 			first_name TEXT,
 			expiry TIMESTAMP WITH TIME ZONE NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS check_tasks (
+			id SERIAL PRIMARY KEY,
+			user_id BIGINT NOT NULL,
+			status TEXT NOT NULL,
+			total_cards INT NOT NULL,
+			checked_cards INT NOT NULL DEFAULT 0,
+			results JSONB NOT NULL DEFAULT '[]'::jsonb,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			telegram_sent BOOLEAN DEFAULT FALSE,
+			result_file_path TEXT
 		);
 	`)
 	if err != nil {
@@ -1485,7 +1501,31 @@ func apiCheckUploadHandler(w http.ResponseWriter, r *http.Request) {
 	if len(proxies) == 0 {
 		proxies = getProxies(userID, isAdmin)
 	}
-	handleCheckSSE(w, r, cards, sites, proxies, concurrency)
+
+	if db == nil {
+		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	var taskID int
+	err = db.QueryRow(`
+		INSERT INTO check_tasks (user_id, status, total_cards, checked_cards, results)
+		VALUES ($1, 'running', $2, 0, '[]'::jsonb)
+		RETURNING id
+	`, userID, len(cards)).Scan(&taskID)
+	if err != nil {
+		log.Println("Failed to create task in DB:", err)
+		http.Error(w, "Failed to create task", http.StatusInternalServerError)
+		return
+	}
+
+	go runTask(taskID, userID, cards, sites, proxies, concurrency)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"task_id": taskID,
+	})
 }
 
 func apiUploadSitesHandler(w http.ResponseWriter, r *http.Request) {
@@ -1903,11 +1943,665 @@ func apiAdminClearProxiesHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
+var (
+	activeTasksMu sync.Mutex
+	activeTasks   = make(map[int]context.CancelFunc)
+)
+
+func startResultCleanupTimer() {
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		for range ticker.C {
+			files, err := os.ReadDir("data/results")
+			if err != nil {
+				continue
+			}
+			now := time.Now()
+			for _, f := range files {
+				info, err := f.Info()
+				if err != nil {
+					continue
+				}
+				if now.Sub(info.ModTime()) > 24*time.Hour {
+					_ = os.Remove(filepath.Join("data/results", f.Name()))
+				}
+			}
+		}
+	}()
+}
+
+func sendTelegramDocument(chatID int64, filePath string, caption string) error {
+	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if botToken == "" {
+		return errors.New("TELEGRAM_BOT_TOKEN is not set")
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	bodyBuf := &bytes.Buffer{}
+	bodyWriter := multipart.NewWriter(bodyBuf)
+
+	if err := bodyWriter.WriteField("chat_id", strconv.FormatInt(chatID, 10)); err != nil {
+		return err
+	}
+	if err := bodyWriter.WriteField("caption", caption); err != nil {
+		return err
+	}
+
+	fileWriter, err := bodyWriter.CreateFormFile("document", filepath.Base(filePath))
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(fileWriter, file); err != nil {
+		return err
+	}
+
+	bodyWriter.Close()
+
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendDocument", botToken)
+	req, err := http.NewRequest("POST", url, bodyBuf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", bodyWriter.FormDataContentType())
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("telegram api error: status %d, body %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+func generateResultFile(taskID int, total int, results []CheckResult) (string, error) {
+	err := os.MkdirAll("data/results", 0755)
+	if err != nil {
+		return "", err
+	}
+	filePath := fmt.Sprintf("data/results/results_%d.txt", taskID)
+	f, err := os.Create(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	writer := bufio.NewWriter(f)
+	fmt.Fprintf(writer, "=== MLSN WEB CHECKER RESULTS ===\n")
+	fmt.Fprintf(writer, "Task ID: %d\n", taskID)
+	fmt.Fprintf(writer, "Time: %s\n", time.Now().Format("2006-01-02 15:04:05 MST"))
+	fmt.Fprintf(writer, "Total Checked: %d\n\n", total)
+
+	charged := 0
+	live := 0
+	fraud := 0
+	dead := 0
+	otp := 0
+	low := 0
+	errCount := 0
+	for _, r := range results {
+		switch r.Status {
+		case "CHARGED":
+			charged++
+		case "LIVE":
+			live++
+		case "FRAUD":
+			fraud++
+		case "DEAD":
+			dead++
+		case "OTP_REQUIRED":
+			otp++
+		case "LOW_BALANCE":
+			low++
+		default:
+			errCount++
+		}
+	}
+	fmt.Fprintf(writer, "Summary:\n")
+	fmt.Fprintf(writer, "- CHARGED: %d\n", charged)
+	fmt.Fprintf(writer, "- LIVE: %d\n", live)
+	fmt.Fprintf(writer, "- FRAUD: %d\n", fraud)
+	fmt.Fprintf(writer, "- DEAD: %d\n", dead)
+	fmt.Fprintf(writer, "- OTP REQUIRED: %d\n", otp)
+	fmt.Fprintf(writer, "- LOW BALANCE: %d\n", low)
+	fmt.Fprintf(writer, "- ERROR/TIMEOUT: %d\n\n", errCount)
+
+	writeCategory := func(title string, status string) {
+		first := true
+		for _, r := range results {
+			if r.Status == status {
+				if first {
+					fmt.Fprintf(writer, "=== %s ===\n", title)
+					first = false
+				}
+				fmt.Fprintf(writer, "%s | %s | %s | %s\n", r.Card, r.Status, r.Msg, r.Site)
+			}
+		}
+		if !first {
+			fmt.Fprintf(writer, "\n")
+		}
+	}
+
+	writeCategory("CHARGED", "CHARGED")
+	writeCategory("LIVE", "LIVE")
+	writeCategory("FRAUD", "FRAUD")
+	writeCategory("OTP REQUIRED", "OTP_REQUIRED")
+	writeCategory("LOW BALANCE", "LOW_BALANCE")
+	writeCategory("DEAD", "DEAD")
+
+	firstErr := true
+	for _, r := range results {
+		if r.Status != "CHARGED" && r.Status != "LIVE" && r.Status != "FRAUD" && r.Status != "OTP_REQUIRED" && r.Status != "LOW_BALANCE" && r.Status != "DEAD" {
+			if firstErr {
+				fmt.Fprintf(writer, "=== ERRORS / TIMEOUTS ===\n")
+				firstErr = false
+			}
+			fmt.Fprintf(writer, "%s | %s | %s | %s\n", r.Card, r.Status, r.Msg, r.Site)
+		}
+	}
+
+	writer.Flush()
+	return filePath, nil
+}
+
+func checkCardsBatchCtx(ctx context.Context, client *http.Client, sacAPI string, cards []Card, sites []string, proxies []string, concurrency int, onCardChecked func(index int, res CheckResult)) []CheckResult {
+	if concurrency <= 0 {
+		concurrency = 1000
+	}
+	sem := make(chan struct{}, concurrency)
+	results := make([]CheckResult, len(cards))
+
+	var wg sync.WaitGroup
+	for i, card := range cards {
+		select {
+		case <-ctx.Done():
+			for j := i; j < len(cards); j++ {
+				results[j] = CheckResult{
+					Status: "CANCELLED",
+					Msg:    "Task cancelled by user",
+					Card:   cards[j].Formatted,
+				}
+			}
+			return results
+		default:
+		}
+
+		wg.Add(1)
+		go func(index int, c Card) {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				results[index] = CheckResult{
+					Status: "CANCELLED",
+					Msg:    "Task cancelled by user",
+					Card:   c.Formatted,
+				}
+				return
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			}
+
+			res := checkCard(client, sacAPI, c, sites, proxies)
+			res.Card = c.Formatted
+			results[index] = res
+
+			if onCardChecked != nil {
+				onCardChecked(index, res)
+			}
+		}(i, card)
+	}
+	wg.Wait()
+	return results
+}
+
+func saveTaskProgress(taskID int, checked int, results []CheckResult) {
+	if db == nil {
+		return
+	}
+	resultsJSON, err := json.Marshal(results)
+	if err != nil {
+		return
+	}
+	_, _ = db.Exec(`
+		UPDATE check_tasks 
+		SET checked_cards = $1, results = $2, updated_at = CURRENT_TIMESTAMP 
+		WHERE id = $3 AND status = 'running'
+	`, checked, string(resultsJSON), taskID)
+}
+
+func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []string, concurrency int) {
+	ctx, cancel := context.WithCancel(context.Background())
+	activeTasksMu.Lock()
+	activeTasks[taskID] = cancel
+	activeTasksMu.Unlock()
+
+	defer func() {
+		activeTasksMu.Lock()
+		delete(activeTasks, taskID)
+		activeTasksMu.Unlock()
+		cancel()
+	}()
+
+	client := &http.Client{
+		Timeout: 90 * time.Second,
+	}
+	sacAPI := os.Getenv("SAC_API")
+	if sacAPI == "" {
+		sacAPI = "https://sac-1-qg37.onrender.com"
+	}
+
+	results := make([]CheckResult, len(cards))
+	var resultsMu sync.Mutex
+	checkedCount := 0
+
+	updateTicker := time.NewTicker(1500 * time.Millisecond)
+	dbUpdatedChan := make(chan bool, 1)
+
+	go func() {
+		for {
+			select {
+			case <-updateTicker.C:
+				resultsMu.Lock()
+				currentChecked := checkedCount
+				resCopy := make([]CheckResult, len(results))
+				copy(resCopy, results)
+				resultsMu.Unlock()
+
+				validResults := make([]CheckResult, 0, len(resCopy))
+				for _, r := range resCopy {
+					if r.Card != "" && r.Status != "" {
+						validResults = append(validResults, r)
+					}
+				}
+
+				saveTaskProgress(taskID, currentChecked, validResults)
+			case <-dbUpdatedChan:
+				return
+			}
+		}
+	}()
+
+	onCardChecked := func(index int, res CheckResult) {
+		resultsMu.Lock()
+		results[index] = res
+		checkedCount++
+		resultsMu.Unlock()
+	}
+
+	finalResults := checkCardsBatchCtx(ctx, client, sacAPI, cards, sites, proxies, concurrency, onCardChecked)
+
+	updateTicker.Stop()
+	dbUpdatedChan <- true
+
+	validFinalResults := make([]CheckResult, 0, len(finalResults))
+	for _, r := range finalResults {
+		if r.Card != "" && r.Status != "" {
+			validFinalResults = append(validFinalResults, r)
+		}
+	}
+
+	status := "completed"
+	select {
+	case <-ctx.Done():
+		status = "cancelled"
+	default:
+	}
+
+	filePath, err := generateResultFile(taskID, len(validFinalResults), validFinalResults)
+	var filePathVal sql.NullString
+	if err == nil {
+		filePathVal.String = filePath
+		filePathVal.Valid = true
+	}
+
+	resultsJSON, _ := json.Marshal(validFinalResults)
+	_, _ = db.Exec(`
+		UPDATE check_tasks 
+		SET status = $1, checked_cards = $2, results = $3, result_file_path = $4, updated_at = CURRENT_TIMESTAMP 
+		WHERE id = $5
+	`, status, len(validFinalResults), string(resultsJSON), filePathVal, taskID)
+
+	if filePathVal.Valid {
+		caption := fmt.Sprintf("MLSN Checker Task #%d completed!\nStatus: %s\nTotal Cards: %d", taskID, status, len(validFinalResults))
+		errTelegram := sendTelegramDocument(userID, filePath, caption)
+		if errTelegram != nil {
+			log.Printf("Failed to send telegram file for task %d: %v", taskID, errTelegram)
+		} else {
+			_, _ = db.Exec("UPDATE check_tasks SET telegram_sent = TRUE WHERE id = $1", taskID)
+		}
+	}
+}
+
+func apiCheckStartHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var reqData struct {
+		Cards       string      `json:"cards"`
+		Proxies     []string    `json:"proxies"`
+		Concurrency interface{} `json:"concurrency"`
+		Semaphore   interface{} `json:"semaphore"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cards := parseCards(reqData.Cards)
+	if len(cards) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "No valid cards found"})
+		return
+	}
+
+	concurrency := 1000
+	getConcurrency := func(val interface{}) int {
+		if val == nil {
+			return 0
+		}
+		switch v := val.(type) {
+		case float64:
+			return int(v)
+		case string:
+			if i, err := strconv.Atoi(v); err == nil {
+				return i
+			}
+		}
+		return 0
+	}
+	if c := getConcurrency(reqData.Concurrency); c > 0 {
+		concurrency = c
+	} else if s := getConcurrency(reqData.Semaphore); s > 0 {
+		concurrency = s
+	}
+
+	userID, _, isAdmin := getSessionUser(r)
+	sites := getSites(userID, isAdmin)
+	proxies := reqData.Proxies
+	if len(proxies) == 0 {
+		proxies = getProxies(userID, isAdmin)
+	}
+
+	if db == nil {
+		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	var taskID int
+	err := db.QueryRow(`
+		INSERT INTO check_tasks (user_id, status, total_cards, checked_cards, results)
+		VALUES ($1, 'running', $2, 0, '[]'::jsonb)
+		RETURNING id
+	`, userID, len(cards)).Scan(&taskID)
+	if err != nil {
+		log.Println("Failed to create task in DB:", err)
+		http.Error(w, "Failed to create task", http.StatusInternalServerError)
+		return
+	}
+
+	go runTask(taskID, userID, cards, sites, proxies, concurrency)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"task_id": taskID,
+	})
+}
+
+func apiTasksActiveHandler(w http.ResponseWriter, r *http.Request) {
+	userID, _, _ := getSessionUser(r)
+	if db == nil {
+		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	var taskID int
+	var status string
+	var totalCards int
+	var checkedCards int
+	var resultsJSON string
+	var createdAt time.Time
+
+	err := db.QueryRow(`
+		SELECT id, status, total_cards, checked_cards, results::text, created_at
+		FROM check_tasks
+		WHERE user_id = $1 AND status = 'running'
+		ORDER BY id DESC
+		LIMIT 1
+	`, userID).Scan(&taskID, &status, &totalCards, &checkedCards, &resultsJSON, &createdAt)
+
+	if err == sql.ErrNoRows {
+		err = db.QueryRow(`
+			SELECT id, status, total_cards, checked_cards, results::text, created_at
+			FROM check_tasks
+			WHERE user_id = $1
+			ORDER BY id DESC
+			LIMIT 1
+		`, userID).Scan(&taskID, &status, &totalCards, &checkedCards, &resultsJSON, &createdAt)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		if err == sql.ErrNoRows {
+			json.NewEncoder(w).Encode(map[string]interface{}{"active": false})
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	var results []CheckResult
+	if resultsJSON != "" {
+		_ = json.Unmarshal([]byte(resultsJSON), &results)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active": true,
+		"task": map[string]interface{}{
+			"id":            taskID,
+			"status":        status,
+			"total_cards":   totalCards,
+			"checked_cards": checkedCards,
+			"results":       results,
+			"created_at":    createdAt,
+		},
+	})
+}
+
+func apiTasksDetailsHandler(w http.ResponseWriter, r *http.Request) {
+	taskIDStr := r.URL.Query().Get("id")
+	if taskIDStr == "" {
+		http.Error(w, "Task ID is required", http.StatusBadRequest)
+		return
+	}
+	taskID, err := strconv.Atoi(taskIDStr)
+	if err != nil {
+		http.Error(w, "Invalid Task ID", http.StatusBadRequest)
+		return
+	}
+
+	userID, _, isAdmin := getSessionUser(r)
+	if db == nil {
+		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	var tUserID int64
+	var status string
+	var totalCards int
+	var checkedCards int
+	var resultsJSON string
+	var createdAt time.Time
+
+	err = db.QueryRow(`
+		SELECT user_id, status, total_cards, checked_cards, results::text, created_at
+		FROM check_tasks
+		WHERE id = $1
+	`, taskID).Scan(&tUserID, &status, &totalCards, &checkedCards, &resultsJSON, &createdAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Task not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if tUserID != userID && !isAdmin {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	var results []CheckResult
+	if resultsJSON != "" {
+		_ = json.Unmarshal([]byte(resultsJSON), &results)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":            taskID,
+		"status":        status,
+		"total_cards":   totalCards,
+		"checked_cards": checkedCards,
+		"results":       results,
+		"created_at":    createdAt,
+	})
+}
+
+func apiTasksCancelHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	taskIDStr := r.URL.Query().Get("id")
+	if taskIDStr == "" {
+		var reqData struct {
+			ID int `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&reqData); err == nil && reqData.ID > 0 {
+			taskIDStr = strconv.Itoa(reqData.ID)
+		}
+	}
+	if taskIDStr == "" {
+		http.Error(w, "Task ID is required", http.StatusBadRequest)
+		return
+	}
+	taskID, err := strconv.Atoi(taskIDStr)
+	if err != nil {
+		http.Error(w, "Invalid Task ID", http.StatusBadRequest)
+		return
+	}
+
+	userID, _, isAdmin := getSessionUser(r)
+	if db == nil {
+		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	var tUserID int64
+	var status string
+	err = db.QueryRow("SELECT user_id, status FROM check_tasks WHERE id = $1", taskID).Scan(&tUserID, &status)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Task not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if tUserID != userID && !isAdmin {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	if status == "running" {
+		activeTasksMu.Lock()
+		cancel, exists := activeTasks[taskID]
+		activeTasksMu.Unlock()
+
+		if exists && cancel != nil {
+			cancel()
+		}
+
+		_, _ = db.Exec("UPDATE check_tasks SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = $1", taskID)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func apiTasksDownloadHandler(w http.ResponseWriter, r *http.Request) {
+	taskIDStr := r.URL.Query().Get("id")
+	if taskIDStr == "" {
+		http.Error(w, "Task ID is required", http.StatusBadRequest)
+		return
+	}
+	taskID, err := strconv.Atoi(taskIDStr)
+	if err != nil {
+		http.Error(w, "Invalid Task ID", http.StatusBadRequest)
+		return
+	}
+
+	userID, _, isAdmin := getSessionUser(r)
+	if db == nil {
+		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	var tUserID int64
+	var filePathVal sql.NullString
+	err = db.QueryRow("SELECT user_id, result_file_path FROM check_tasks WHERE id = $1", taskID).Scan(&tUserID, &filePathVal)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Task not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if tUserID != userID && !isAdmin {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	if !filePathVal.Valid || filePathVal.String == "" {
+		http.Error(w, "Result file not found or task not completed yet", http.StatusNotFound)
+		return
+	}
+
+	filePath := filePathVal.String
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		http.Error(w, "Result file has expired and been deleted (24h retention)", http.StatusGone)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filepath.Base(filePath)))
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	http.ServeFile(w, r, filePath)
+}
+
 func main() {
 	loadDotEnv()
 	initDB()
 
 	os.MkdirAll(DATA_DIR, 0755)
+	os.MkdirAll("data/results", 0755)
+	startResultCleanupTimer()
 
 	mux := http.NewServeMux()
 
@@ -1931,8 +2625,14 @@ func main() {
 
 	mux.HandleFunc("/api/stats", apiStatsHandler)
 	mux.HandleFunc("/api/check_batch", requireLogin(apiCheckBatchHandler))
+	mux.HandleFunc("/api/check/start", requireLogin(apiCheckStartHandler))
 	mux.HandleFunc("/api/check", requireLogin(apiCheckHandler))
 	mux.HandleFunc("/api/check/upload", requireLogin(apiCheckUploadHandler))
+	
+	mux.HandleFunc("/api/tasks/active", requireLogin(apiTasksActiveHandler))
+	mux.HandleFunc("/api/tasks/details", requireLogin(apiTasksDetailsHandler))
+	mux.HandleFunc("/api/tasks/cancel", requireLogin(apiTasksCancelHandler))
+	mux.HandleFunc("/api/tasks/download", requireLogin(apiTasksDownloadHandler))
 
 	mux.HandleFunc("/api/sites/upload", requireLogin(apiUploadSitesHandler))
 	mux.HandleFunc("/api/proxies/upload", requireLogin(apiUploadProxiesHandler))

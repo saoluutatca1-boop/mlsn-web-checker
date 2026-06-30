@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { 
-  Play, Pause, Square, Trash2, Plus, X, UploadCloud, Database, 
+  Play, Square, Trash2, Plus, X, UploadCloud, Database, 
   LogOut, Lock, User, Terminal, Server, ShieldCheck, CheckCircle2, AlertCircle,
-  Menu
+  Menu, Download
 } from 'lucide-react'
 
 // Types based on the Go backend API
@@ -110,7 +110,6 @@ export default function App() {
   
   // Checking State
   const [isRunning, setIsRunning] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
   const [progressPct, setProgressPct] = useState(0)
   const [progressStatus, setProgressStatus] = useState('PREPARING ENVIRONMENT...')
   const [progressText, setProgressText] = useState('0 / 0 CHECKED (0%)')
@@ -140,15 +139,57 @@ export default function App() {
   const consoleEndRef = useRef<HTMLDivElement>(null)
 
   // Core checking execution logic (batch queue)
-  const isStoppedRef = useRef(false)
-  const isPausedRef = useRef(false)
-  const resumeResolverRef = useRef<(() => void) | null>(null)
 
 
   // Run on startup
   useEffect(() => {
     checkAuth()
     loadLocalProxies()
+
+    const checkActiveTask = async () => {
+      try {
+        const res = await fetch('/api/tasks/active')
+        if (res.ok) {
+          const data = await res.json()
+          if (data.active && data.task) {
+            const task = data.task
+            const taskResults = task.results || []
+            setResults(taskResults)
+            setCounters({
+              all: task.total_cards,
+              charged: taskResults.filter((r: any) => r.status === 'CHARGED').length,
+              live: taskResults.filter((r: any) => r.status === 'LIVE').length,
+              fraud: taskResults.filter((r: any) => r.status === 'FRAUD').length,
+              dead: taskResults.filter((r: any) => r.status === 'DEAD').length,
+              otp: taskResults.filter((r: any) => r.status === 'OTP_REQUIRED').length,
+              low: taskResults.filter((r: any) => r.status === 'LOW_BALANCE').length,
+              err: taskResults.filter((r: any) => ['ERROR', 'TIMEOUT', 'EXCEPTION'].includes(r.status)).length
+            })
+            const pct = Math.round((task.checked_cards / task.total_cards) * 100)
+            setProgressPct(pct)
+            setProgressText(`${task.checked_cards} / ${task.total_cards} CHECKED (${pct}%)`)
+
+            if (task.status === 'running') {
+              pollTask(task.id)
+            } else {
+              setCurrentTaskId(task.id)
+              setProgressStatus(task.status === 'completed' ? 'DONE' : task.status === 'cancelled' ? 'TERMINATED' : 'FAILED')
+            }
+          }
+        }
+      } catch (err) {}
+    }
+
+    const timer = setTimeout(checkActiveTask, 500)
+    return () => clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+    }
   }, [])
 
   // Auto scroll console to bottom
@@ -355,37 +396,93 @@ export default function App() {
     reader.readAsText(file)
   }
 
-  const stopChecking = () => {
-    if (!isRunning) return
-    isStoppedRef.current = true
-    if (isPaused) {
-      setIsPaused(false)
-      isPausedRef.current = false
-      if (resumeResolverRef.current) {
-        resumeResolverRef.current()
-        resumeResolverRef.current = null
-      }
-    }
+  const [currentTaskId, setCurrentTaskId] = useState<number | null>(null)
+  const taskIdRef = useRef<number | null>(null)
+  const pollIntervalRef = useRef<any>(null)
+
+  const stopChecking = async () => {
+    if (!isRunning || !taskIdRef.current) return
     showToast("Stopping checker...", "err")
+    try {
+      await fetch(`/api/tasks/cancel?id=${taskIdRef.current}`, {
+        method: 'POST'
+      })
+    } catch (e) {
+      console.error(e)
+    }
   }
 
-  const togglePauseChecking = () => {
-    if (!isRunning) return
-    const nextPaused = !isPaused
-    setIsPaused(nextPaused)
-    isPausedRef.current = nextPaused
-    
-    if (nextPaused) {
-      setProgressStatus('EXECUTION PAUSED')
-      showToast("Checking suspended")
-    } else {
-      setProgressStatus('RESUMING...')
-      showToast("Checking resumed")
-      if (resumeResolverRef.current) {
-        resumeResolverRef.current()
-        resumeResolverRef.current = null
-      }
+  const pollTask = (taskId: number) => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
     }
+    taskIdRef.current = taskId
+    setCurrentTaskId(taskId)
+    setIsRunning(true)
+
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/tasks/details?id=${taskId}`)
+        if (!res.ok) {
+          throw new Error('Failed to fetch task details')
+        }
+        const data = await res.json()
+        
+        const taskResults = data.results || []
+        const timestamp = new Date().toTimeString().split(' ')[0]
+        taskResults.forEach((r: any) => {
+          if (!r.timestamp) r.timestamp = timestamp
+        })
+
+        setResults(taskResults)
+
+        const currentStats = {
+          all: data.total_cards,
+          charged: taskResults.filter((r: any) => r.status === 'CHARGED').length,
+          live: taskResults.filter((r: any) => r.status === 'LIVE').length,
+          fraud: taskResults.filter((r: any) => r.status === 'FRAUD').length,
+          dead: taskResults.filter((r: any) => r.status === 'DEAD').length,
+          otp: taskResults.filter((r: any) => r.status === 'OTP_REQUIRED').length,
+          low: taskResults.filter((r: any) => r.status === 'LOW_BALANCE').length,
+          err: taskResults.filter((r: any) => ['ERROR', 'TIMEOUT', 'EXCEPTION'].includes(r.status)).length
+        }
+        setCounters(currentStats)
+
+        const pct = Math.round((data.checked_cards / data.total_cards) * 100)
+        setProgressPct(pct)
+        setProgressText(`${data.checked_cards} / ${data.total_cards} CHECKED (${pct}%)`)
+        
+        if (data.status === 'running') {
+          setProgressStatus('CHECKING CARDS...')
+        } else if (data.status === 'completed') {
+          setProgressStatus('DONE')
+          setIsRunning(false)
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current)
+            pollIntervalRef.current = null
+          }
+          showToast('Checking completed successfully')
+        } else if (data.status === 'cancelled') {
+          setProgressStatus('TERMINATED')
+          setIsRunning(false)
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current)
+            pollIntervalRef.current = null
+          }
+          showToast('Checking stopped manually', 'err')
+        } else if (data.status === 'failed') {
+          setProgressStatus('FAILED')
+          setIsRunning(false)
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current)
+            pollIntervalRef.current = null
+          }
+          showToast('Checking task failed', 'err')
+        }
+      } catch (err: any) {
+        console.error(err)
+      }
+    }, 1500)
   }
 
   const runChecker = async () => {
@@ -410,95 +507,43 @@ export default function App() {
     }
 
     setIsRunning(true)
-    setIsPaused(false)
-    isStoppedRef.current = false
-    isPausedRef.current = false
     
     setResults([])
     setCounters({
       all: cards.length, charged: 0, live: 0, fraud: 0, dead: 0, otp: 0, low: 0, err: 0
     })
     setProgressPct(0)
-    setProgressStatus('INITIALIZING STREAM...')
+    setProgressStatus('INITIALIZING TASK...')
     setProgressText(`0 / ${cards.length} CHECKED (0%)`)
 
-    const batchSize = 200
-    const totalBatches = Math.ceil(cards.length / batchSize)
-    let accumulated: CheckResult[] = []
-
-    // Run batch loops
-    for (let currentBatch = 0; currentBatch < totalBatches; currentBatch++) {
-      if (isStoppedRef.current) break
-
-      if (isPausedRef.current) {
-        setProgressStatus('EXECUTION PAUSED')
-        await new Promise<void>(resolve => {
-          resumeResolverRef.current = resolve
+    try {
+      const res = await fetch('/api/check/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cards: rawText,
+          concurrency: concurrency,
+          proxies: userProxies
         })
+      })
+
+      if (!res.ok) {
+        throw new Error(`Start request failed with status ${res.status}`)
       }
 
-      if (isStoppedRef.current) break
-
-      const startIdx = currentBatch * batchSize
-      const endIdx = Math.min(startIdx + batchSize, cards.length)
-      setProgressStatus(`CHECKING BATCH ${currentBatch + 1}/${totalBatches}...`)
-
-      const batch = cards.slice(startIdx, endIdx)
-
-      try {
-        const res = await fetch('/api/check_batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            cards: batch,
-            concurrency: concurrency,
-            proxies: userProxies
-          })
-        })
-
-        if (!res.ok) {
-          throw new Error(`Batch request failed with status ${res.status}`)
-        }
-
-        const data = await res.json()
-        const batchResults: CheckResult[] = data.results || []
-        
-        const timestamp = new Date().toTimeString().split(' ')[0]
-        batchResults.forEach(r => r.timestamp = timestamp)
-
-        accumulated = accumulated.concat(batchResults)
-        setResults(prev => prev.concat(batchResults))
-        
-        // Update stats counters
-        const currentStats = {
-          all: cards.length,
-          charged: accumulated.filter(r => r.status === 'CHARGED').length,
-          live: accumulated.filter(r => r.status === 'LIVE').length,
-          fraud: accumulated.filter(r => r.status === 'FRAUD').length,
-          dead: accumulated.filter(r => r.status === 'DEAD').length,
-          otp: accumulated.filter(r => r.status === 'OTP_REQUIRED').length,
-          low: accumulated.filter(r => r.status === 'LOW_BALANCE').length,
-          err: accumulated.filter(r => ['ERROR', 'TIMEOUT', 'EXCEPTION'].includes(r.status)).length
-        }
-        setCounters(currentStats)
-
-        const pct = Math.round((accumulated.length / cards.length) * 100)
-        setProgressPct(pct)
-        setProgressText(`${accumulated.length} / ${cards.length} CHECKED (${pct}%)`)
-
-      } catch (err: any) {
-        showToast(err.message, "err")
-        await new Promise(resolve => setTimeout(resolve, 3000))
+      const data = await res.json()
+      if (data.success && data.task_id) {
+        pollTask(data.task_id)
+        showToast('Checking task started successfully')
+      } else {
+        throw new Error(data.error || 'Failed to start checking task')
       }
+
+    } catch (err: any) {
+      showToast(err.message, "err")
+      setIsRunning(false)
     }
 
-    // Finish check
-    setIsRunning(false)
-    setIsPaused(false)
-    setProgressStatus(isStoppedRef.current ? 'TERMINATED' : 'DONE')
-    showToast(isStoppedRef.current ? 'Checking stopped manually' : 'Checking batch completed successfully')
-    
-    // Clear input forms
     setCardInput('')
     setUploadedFileName('')
     setUploadedFileContent('')
@@ -1041,24 +1086,12 @@ export default function App() {
                       <Play className="w-3.5 h-3.5 fill-current" /> RUN CHECKER
                     </button>
                   ) : (
-                    <>
-                      <button 
-                        onClick={togglePauseChecking}
-                        className={`font-tech text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all border active:scale-[0.98] duration-200 ${
-                          isPaused 
-                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20' 
-                            : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20'
-                        }`}
-                      >
-                        <Pause className="w-3.5 h-3.5" /> {isPaused ? 'RESUME' : 'PAUSE'}
-                      </button>
-                      <button 
-                        onClick={stopChecking}
-                        className="bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 font-tech text-xs font-bold py-3 rounded-xl shrink-0 px-4 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-200"
-                      >
-                        <Square className="w-3.5 h-3.5 fill-current" /> STOP
-                      </button>
-                    </>
+                    <button 
+                      onClick={stopChecking}
+                      className="bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 font-tech text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-200"
+                    >
+                      <Square className="w-3.5 h-3.5 fill-current" /> STOP CHECKING / CANCEL
+                    </button>
                   )}
                 </div>
               </div>
@@ -1200,13 +1233,25 @@ export default function App() {
                 <div className="font-tech text-[10.5px] font-bold text-white tracking-wider flex items-center gap-2">
                   <Terminal className="w-4 h-4 text-slate-400" /> RUNNER CONSOLE
                 </div>
-                <button 
-                  onClick={clearResults}
-                  disabled={isRunning}
-                  className="py-2 px-3 bg-red-950/5 hover:bg-red-500/10 border border-red-950/30 hover:border-red-500/30 disabled:opacity-30 disabled:pointer-events-none text-red-400/80 hover:text-red-400 rounded-lg font-tech text-[8.5px] font-bold flex items-center gap-1.5 transition-all active:scale-[0.98]"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> CLEAR LOGS
-                </button>
+                <div className="flex gap-2">
+                  {currentTaskId && !isRunning && (
+                    <a 
+                      href={`/api/tasks/download?id=${currentTaskId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="py-2 px-3 bg-cyan-950/20 hover:bg-cyan-500/10 border border-cyan-950/30 hover:border-cyan-500/30 text-cyan-400 rounded-lg font-tech text-[8.5px] font-bold flex items-center gap-1.5 transition-all no-underline"
+                    >
+                      <Download className="w-3.5 h-3.5" /> DOWNLOAD REPORT (24H)
+                    </a>
+                  )}
+                  <button 
+                    onClick={clearResults}
+                    disabled={isRunning}
+                    className="py-2 px-3 bg-red-950/5 hover:bg-red-500/10 border border-red-950/30 hover:border-red-500/30 disabled:opacity-30 disabled:pointer-events-none text-red-400/80 hover:text-red-400 rounded-lg font-tech text-[8.5px] font-bold flex items-center gap-1.5 transition-all active:scale-[0.98]"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> CLEAR LOGS
+                  </button>
+                </div>
               </div>
 
               {/* Concurrency Progress Indicator */}
