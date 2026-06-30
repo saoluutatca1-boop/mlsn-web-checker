@@ -1080,21 +1080,27 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiStatsHandler(w http.ResponseWriter, r *http.Request) {
-	userSites := loadFile(SITES_FILE)
-	userProxies := loadFile(PROXIES_FILE)
+	sessionData := getSession(r)
+	isLoggedIn := sessionData != nil && (sessionData["user"] != nil && sessionData["user"] != "" || sessionData["admin"] == true)
 
 	sc := 0
-	if len(userSites) > 0 {
-		sc = len(userSites)
-	} else {
-		sc = len(getSitesFromDB())
-	}
-
 	pc := 0
-	if len(userProxies) > 0 {
-		pc = len(userProxies)
-	} else {
-		pc = len(getProxiesFromDB())
+
+	if isLoggedIn {
+		userSites := loadFile(SITES_FILE)
+		userProxies := loadFile(PROXIES_FILE)
+
+		if len(userSites) > 0 {
+			sc = len(userSites)
+		} else {
+			sc = len(getSitesFromDB())
+		}
+
+		if len(userProxies) > 0 {
+			pc = len(userProxies)
+		} else {
+			pc = len(getProxiesFromDB())
+		}
 	}
 
 	sacAPI := os.Getenv("SAC_API")
@@ -1814,7 +1820,7 @@ func main() {
 	mux.HandleFunc("/api/login/token", apiLoginTokenHandler)
 	mux.HandleFunc("/logout", logoutHandler)
 
-	mux.HandleFunc("/api/stats", requireLogin(apiStatsHandler))
+	mux.HandleFunc("/api/stats", apiStatsHandler)
 	mux.HandleFunc("/api/check_batch", requireLogin(apiCheckBatchHandler))
 	mux.HandleFunc("/api/check", requireLogin(apiCheckHandler))
 	mux.HandleFunc("/api/check/upload", requireLogin(apiCheckUploadHandler))
