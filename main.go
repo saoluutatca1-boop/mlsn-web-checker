@@ -156,12 +156,14 @@ func loadDotEnv() {
 func initDB() {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
+		log.Println("DATABASE_URL is empty. Database connection skipped.")
 		return
 	}
 	var err error
 	db, err = sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Println("DB connection failed:", err)
+		db = nil
 		return
 	}
 
@@ -171,6 +173,8 @@ func initDB() {
 
 	if err := db.Ping(); err != nil {
 		log.Println("DB ping failed:", err)
+		db.Close()
+		db = nil
 		return
 	}
 
@@ -1110,12 +1114,21 @@ func apiStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 	botUsername := os.Getenv("TELEGRAM_BOT_USERNAME")
 
+	sessionUser := ""
+	if isLoggedIn && sessionData["user"] != nil {
+		if uStr, ok := sessionData["user"].(string); ok {
+			sessionUser = uStr
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"sites_count":   sc,
 		"proxies_count": pc,
 		"api_url":       sacAPI,
 		"bot_username":  botUsername,
+		"authenticated": isLoggedIn,
+		"user":          sessionUser,
 	})
 }
 

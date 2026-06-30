@@ -148,19 +148,23 @@ export default function App() {
         setStatsData(data)
         setApiOnline(true)
         
-        const dbRes = await fetch('/api/admin/db_info')
-        if (dbRes.ok) {
-          setIsAdmin(true)
-          setUser("vanlinhcute")
-          if (window.location.pathname === '/vanlinh') {
-            setTab("admin")
+        if (data.authenticated) {
+          const dbRes = await fetch('/api/admin/db_info')
+          if (dbRes.ok) {
+            setIsAdmin(true)
+            setUser(data.user || "vanlinhcute")
+            if (window.location.pathname === '/vanlinh') {
+              setTab("admin")
+            } else {
+              setTab("checker")
+            }
           } else {
+            setIsAdmin(false)
+            setUser(data.user || "User")
             setTab("checker")
           }
         } else {
-          setIsAdmin(false)
-          setUser("User")
-          setTab("checker")
+          setTab("login")
         }
       } else {
         setTab("login")
