@@ -1922,7 +1922,8 @@ export const AvatarCustomizer: React.FC<AvatarCustomizerProps> = ({
           </div>
           <button 
             onClick={onClose}
-            className="text-lg hover:text-white text-slate-400 font-bold p-1 px-2.5 hover:bg-slate-900 rounded-lg transition-all"
+            aria-label="Close retro character gallery"
+            className="text-lg hover:text-white text-slate-400 font-bold p-1 px-2.5 hover:bg-slate-900 rounded-lg transition-colors"
           >
             &times;
           </button>
@@ -1978,6 +1979,7 @@ export const AvatarCustomizer: React.FC<AvatarCustomizerProps> = ({
                   <button
                     key={avatar.id}
                     onClick={() => setSelectedIndex(avatar.id)}
+                    aria-label={`Select avatar ${avatar.name}`}
                     className={`aspect-square p-1.5 rounded-xl border flex items-center justify-center transition-all ${
                       isSelected 
                         ? 'bg-cyan-500/15 border-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)] scale-105 z-10' 

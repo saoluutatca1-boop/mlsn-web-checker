@@ -1710,29 +1710,36 @@ export default function App() {
                 ) : (
                   <form onSubmit={handleAdminLogin} className="flex flex-col gap-4 font-mono">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] uppercase tracking-wider text-slate-550 font-bold">Admin Username</label>
+                      <label htmlFor="admin-username" className="text-[10px] uppercase tracking-wider text-slate-550 font-bold cursor-pointer">Admin Username</label>
                       <div className="relative">
                         <User className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-505" />
                         <input 
+                          id="admin-username"
+                          name="username"
+                          autoComplete="username"
+                          spellCheck={false}
                           type="text" 
-                          placeholder="Username..."
+                          placeholder="Username…"
                           value={adminUsername}
                           onChange={(e) => setAdminUsername(e.target.value)}
-                          className="w-full tech-input rounded-xl px-3 py-3 pl-10 text-sm text-slate-200 outline-none placeholder:text-slate-650"
+                          className="w-full tech-input rounded-xl px-3 py-3 pl-10 text-sm text-slate-200 outline-none focus-visible:ring-1 focus-visible:ring-cyan-500/30 placeholder:text-slate-650"
                         />
                       </div>
                     </div>
 
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] uppercase tracking-wider text-slate-555 font-bold">Admin Password</label>
+                      <label htmlFor="admin-password" className="text-[10px] uppercase tracking-wider text-slate-555 font-bold cursor-pointer">Admin Password</label>
                       <div className="relative">
                         <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-505" />
                         <input 
+                          id="admin-password"
+                          name="password"
+                          autoComplete="current-password"
                           type="password" 
-                          placeholder="Password..."
+                          placeholder="Password…"
                           value={adminPassword}
                           onChange={(e) => setAdminPassword(e.target.value)}
-                          className="w-full tech-input rounded-xl px-3 py-3 pl-10 text-sm text-slate-200 outline-none placeholder:text-slate-650"
+                          className="w-full tech-input rounded-xl px-3 py-3 pl-10 text-sm text-slate-200 outline-none focus-visible:ring-1 focus-visible:ring-cyan-500/30 placeholder:text-slate-650"
                         />
                       </div>
                     </div>
@@ -2184,16 +2191,18 @@ export default function App() {
                 >
                   CHARGED: <span className="font-bold">{counters.charged}</span>
                   {counters.charged > 0 && (
-                    <span 
+                    <button 
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         copyAllCardsByStatus('CHARGED');
                       }}
-                      className="ml-1 p-0.5 hover:bg-emerald-500/20 rounded transition-all cursor-pointer"
+                      className="ml-1 p-0.5 hover:bg-emerald-500/20 rounded transition-colors cursor-pointer border border-transparent focus-visible:border-emerald-500/30 outline-none"
                       title="Copy all CHARGED cards"
+                      aria-label="Copy all CHARGED cards"
                     >
                       <Copy className="w-2.5 h-2.5" />
-                    </span>
+                    </button>
                   )}
                 </button>
                 <button 
@@ -2206,16 +2215,18 @@ export default function App() {
                 >
                   LIVE: <span className="font-bold">{counters.live}</span>
                   {counters.live > 0 && (
-                    <span 
+                    <button 
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         copyAllCardsByStatus('LIVE');
                       }}
-                      className="ml-1 p-0.5 hover:bg-cyan-500/20 rounded transition-all cursor-pointer"
+                      className="ml-1 p-0.5 hover:bg-cyan-500/20 rounded transition-colors cursor-pointer border border-transparent focus-visible:border-cyan-500/30 outline-none"
                       title="Copy all LIVE cards"
+                      aria-label="Copy all LIVE cards"
                     >
                       <Copy className="w-2.5 h-2.5" />
-                    </span>
+                    </button>
                   )}
                 </button>
                 <button 
@@ -2248,16 +2259,18 @@ export default function App() {
                 >
                   3DS: <span className="font-bold">{counters.otp}</span>
                   {counters.otp > 0 && (
-                    <span 
+                    <button 
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         copyAllCardsByStatus('OTP_REQUIRED');
                       }}
-                      className="ml-1 p-0.5 hover:bg-blue-500/20 rounded transition-all cursor-pointer"
+                      className="ml-1 p-0.5 hover:bg-blue-500/20 rounded transition-colors cursor-pointer border border-transparent focus-visible:border-blue-500/30 outline-none"
                       title="Copy all 3DS cards"
+                      aria-label="Copy all 3DS cards"
                     >
                       <Copy className="w-2.5 h-2.5" />
-                    </span>
+                    </button>
                   )}
                 </button>
                 <button 
@@ -2270,16 +2283,18 @@ export default function App() {
                 >
                   LOW: <span className="font-bold">{counters.low}</span>
                   {counters.low > 0 && (
-                    <span 
+                    <button 
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         copyAllCardsByStatus('LOW_BALANCE');
                       }}
-                      className="ml-1 p-0.5 hover:bg-purple-500/20 rounded transition-all cursor-pointer"
+                      className="ml-1 p-0.5 hover:bg-purple-500/20 rounded transition-colors cursor-pointer border border-transparent focus-visible:border-purple-500/30 outline-none"
                       title="Copy all LOW balance cards"
+                      aria-label="Copy all LOW balance cards"
                     >
                       <Copy className="w-2.5 h-2.5" />
-                    </span>
+                    </button>
                   )}
                 </button>
                 <button 
@@ -2350,10 +2365,12 @@ export default function App() {
                           <span className={`px-2 py-0.5 border text-[8px] font-bold rounded-lg uppercase shrink-0 ${statusBg}`}>
                             [{displayStatus}]
                           </span>
-                          <div 
+                          <button 
+                            type="button"
                             onClick={() => copyToClipboard(r.card)}
-                            className="flex flex-col shrink-0 min-w-[130px] cursor-pointer hover:text-cyan-455 active:scale-95 duration-100 transition-all select-none"
+                            className="flex flex-col shrink-0 min-w-[130px] cursor-pointer hover:text-cyan-400 text-left active:scale-95 duration-100 transition-[color,transform] select-none outline-none focus-visible:ring-1 focus-visible:ring-cyan-500/30 rounded-lg"
                             title="Click to copy card / Bấm để copy thẻ"
+                            aria-label={`Copy card ${r.card}`}
                           >
                             <span className="text-slate-200 font-semibold text-[10.5px] md:text-[11.5px] tracking-wide hover:underline">{r.card}</span>
                             {r.bin_brand && (
@@ -2361,7 +2378,7 @@ export default function App() {
                                 {r.bin_brand} • {r.bin_type || "N/A"} • {r.bin_class || "CLASSIC"} • {r.bin_bank || "BANK"} ({r.bin_country || "N/A"})
                               </span>
                             )}
-                          </div>
+                          </button>
                           <span className="text-slate-400 text-[10.5px] overflow-hidden text-ellipsis flex-1 min-w-[150px] md:min-w-0">&gt; {r.msg}</span>
                           <span className={`shrink-0 text-[10.5px] md:text-[11.5px] ${colorClass}`}>{r.price}</span>
                           <span className="text-slate-500 text-[9.5px] shrink-0 font-semibold">{r.gateway}</span>
@@ -2415,12 +2432,14 @@ export default function App() {
                 <form onSubmit={handleAdminAddSite} className="flex gap-2">
                   <input 
                     type="text" 
+                    name="site_url"
+                    aria-label="Site URL to add"
                     placeholder="https://example.com"
                     value={adminAddSiteInput}
                     onChange={(e) => setAdminAddSiteInput(e.target.value)}
-                    className="flex-1 bg-slate-950/65 border border-slate-900 rounded-xl px-3 py-2 text-xs text-slate-250 outline-none focus:border-cyan-500/40 focus:ring-1 focus:ring-cyan-500/25 transition-all placeholder:text-slate-700"
+                    className="flex-1 bg-slate-950/65 border border-slate-900 rounded-xl px-3 py-2 text-xs text-slate-250 outline-none focus:border-cyan-500/40 focus:ring-1 focus:ring-cyan-500/25 transition-colors placeholder:text-slate-700"
                   />
-                  <button type="submit" className="py-2 px-4 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1 transition-all active:scale-[0.98] duration-200 hover:shadow-[0_0_12px_rgba(6,182,212,0.35)]">
+                  <button type="submit" className="py-2 px-4 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 text-xs font-bold rounded-xl flex items-center gap-1 transition-[background-color,box-shadow,transform] active:scale-[0.98] duration-200 hover:shadow-[0_0_12px_rgba(6,182,212,0.35)]">
                     <Plus className="w-3.5 h-3.5" /> ADD
                   </button>
                 </form>
@@ -2430,11 +2449,12 @@ export default function App() {
                     <div className="text-slate-600 italic text-center my-auto font-tech">// No sites loaded in database</div>
                   ) : (
                     dbInfo.sites.map((site, i) => (
-                      <div key={i} className="flex justify-between items-center py-1.5 px-2.5 hover:bg-slate-900/30 rounded-lg transition-all duration-150">
+                      <div key={i} className="flex justify-between items-center py-1.5 px-2.5 hover:bg-slate-900/30 rounded-lg transition-colors duration-150">
                         <span className="truncate text-slate-300 font-medium">{site}</span>
                         <button 
                           onClick={() => handleAdminDeleteSite(site)}
-                          className="text-slate-500 hover:text-red-400 transition-all p-1 hover:bg-slate-950 border border-transparent hover:border-slate-900 rounded-md"
+                          aria-label={`Delete site ${site}`}
+                          className="text-slate-500 hover:text-red-400 transition-colors p-1 hover:bg-slate-950 border border-transparent hover:border-slate-900 rounded-md"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -2453,12 +2473,14 @@ export default function App() {
                 <form onSubmit={handleAdminAddProxy} className="flex gap-2">
                   <input 
                     type="text" 
+                    name="proxy"
+                    aria-label="Proxy address to add"
                     placeholder="user:pass@ip:port"
                     value={adminAddProxyInput}
                     onChange={(e) => setAdminAddProxyInput(e.target.value)}
-                    className="flex-1 bg-slate-950/65 border border-slate-900 rounded-xl px-3 py-2 text-xs text-slate-250 outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/25 transition-all placeholder:text-slate-700"
+                    className="flex-1 bg-slate-950/65 border border-slate-900 rounded-xl px-3 py-2 text-xs text-slate-250 outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/25 transition-colors placeholder:text-slate-700"
                   />
-                  <button type="submit" className="py-2 px-4 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 text-white text-xs font-bold rounded-xl flex items-center gap-1 transition-all active:scale-[0.98] duration-200 hover:shadow-[0_0_12px_rgba(168,85,247,0.35)]">
+                  <button type="submit" className="py-2 px-4 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 text-white text-xs font-bold rounded-xl flex items-center gap-1 transition-[background-color,box-shadow,transform] active:scale-[0.98] duration-200 hover:shadow-[0_0_12px_rgba(168,85,247,0.35)]">
                     <Plus className="w-3.5 h-3.5" /> ADD
                   </button>
                 </form>
@@ -2468,11 +2490,12 @@ export default function App() {
                     <div className="text-slate-600 italic text-center my-auto font-tech">// No proxies loaded in database</div>
                   ) : (
                     dbInfo.proxies.map((proxy, i) => (
-                      <div key={i} className="flex justify-between items-center py-1.5 px-2.5 hover:bg-slate-900/30 rounded-lg transition-all duration-150">
+                      <div key={i} className="flex justify-between items-center py-1.5 px-2.5 hover:bg-slate-900/30 rounded-lg transition-colors duration-150">
                         <span className="truncate text-slate-300 font-medium">{proxy}</span>
                         <button 
                           onClick={() => handleAdminDeleteProxy(proxy)}
-                          className="text-slate-500 hover:text-red-400 transition-all p-1 hover:bg-slate-950 border border-transparent hover:border-slate-900 rounded-md"
+                          aria-label={`Delete proxy ${proxy}`}
+                          className="text-slate-500 hover:text-red-400 transition-colors p-1 hover:bg-slate-950 border border-transparent hover:border-slate-900 rounded-md"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
