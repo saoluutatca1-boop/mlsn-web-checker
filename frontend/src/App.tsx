@@ -455,6 +455,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const consoleEndRef = useRef<HTMLDivElement>(null)
+  const consoleContainerRef = useRef<HTMLDivElement>(null)
 
   // Core checking execution logic (batch queue)
 
@@ -513,7 +514,15 @@ export default function App() {
   // Auto scroll console to bottom
   useEffect(() => {
     if (isRunning && consoleEndRef.current) {
-      consoleEndRef.current.scrollIntoView({ behavior: 'auto' }) // ponytail: use 'auto' scroll behavior to prevent smooth-scrolling CPU lag on mobile
+      if (consoleContainerRef.current) {
+        const container = consoleContainerRef.current
+        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150
+        if (isAtBottom) {
+          consoleEndRef.current.scrollIntoView({ behavior: 'auto' })
+        }
+      } else {
+        consoleEndRef.current.scrollIntoView({ behavior: 'auto' })
+      }
     }
   }, [results, isRunning])
 
@@ -2024,7 +2033,7 @@ export default function App() {
               </div>
 
               {/* Console Logs Lists */}
-              <div className="flex-1 min-h-[350px] md:min-h-[480px] bg-slate-950/15 p-3 overflow-y-auto flex flex-col font-mono text-[10px] md:text-[11px] select-text">
+              <div ref={consoleContainerRef} className="flex-1 min-h-[350px] md:min-h-[480px] bg-slate-950/15 p-3 overflow-y-auto flex flex-col font-mono text-[10px] md:text-[11px] select-text">
                 {filteredResults.length === 0 ? (
                   <div className="text-slate-600 italic text-center my-auto py-12">
                     // Console is idle. Waiting for checking input...
