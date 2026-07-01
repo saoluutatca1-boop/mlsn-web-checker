@@ -92,14 +92,16 @@ function VisualAnalytics({ results, counters, cpmHistory }: {
   counters: any, 
   cpmHistory: { time: string, cpm: number }[] 
 }) {
-  const total = counters.LIVE + counters.DEAD + counters.OTP_REQUIRED + counters.LOW_BALANCE + counters.ERROR;
+  const total = (counters.charged || 0) + (counters.live || 0) + (counters.fraud || 0) + (counters.dead || 0) + (counters.otp || 0) + (counters.low || 0) + (counters.err || 0);
   
   const segments = [
-    { label: 'LIVE', count: counters.LIVE, color: '#10b981' },
-    { label: 'DEAD', count: counters.DEAD, color: '#f43f5e' },
-    { label: 'OTP', count: counters.OTP_REQUIRED, color: '#60a5fa' },
-    { label: 'LOW BAL', count: counters.LOW_BALANCE, color: '#a855f7' },
-    { label: 'ERROR', count: counters.ERROR, color: '#f59e0b' }
+    { label: 'CHARGED', count: counters.charged || 0, color: '#10b981' },
+    { label: 'LIVE', count: counters.live || 0, color: '#06b6d4' },
+    { label: 'FRAUD', count: counters.fraud || 0, color: '#f97316' },
+    { label: 'DEAD', count: counters.dead || 0, color: '#f43f5e' },
+    { label: '3DS', count: counters.otp || 0, color: '#60a5fa' },
+    { label: 'LOW BAL', count: counters.low || 0, color: '#a855f7' },
+    { label: 'ERROR', count: counters.err || 0, color: '#f59e0b' }
   ];
 
   let accumulatedPercent = 0;
