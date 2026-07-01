@@ -70,7 +70,7 @@ def require_login():
         return redirect(url_for('login', admin='1', next=request.path))
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-SAC_API = os.getenv("SAC_API", "https://sac-1-qg37.onrender.com")
+SAC_API = os.getenv("SAC_API", "https://sac-hz4s.onrender.com")
 
 DB_POOL = None
 DB_POOL_MIN = 2

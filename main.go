@@ -1818,7 +1818,7 @@ func apiStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 	sacAPI := os.Getenv("SAC_API")
 	if sacAPI == "" {
-		sacAPI = "https://sac-1-qg37.onrender.com"
+		sacAPI = "https://sac-hz4s.onrender.com"
 	}
 
 	botUsername := os.Getenv("TELEGRAM_BOT_USERNAME")
@@ -1880,7 +1880,7 @@ func apiCheckBatchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	sacAPI := os.Getenv("SAC_API")
 	if sacAPI == "" {
-		sacAPI = "https://sac-1-qg37.onrender.com"
+		sacAPI = "https://sac-hz4s.onrender.com"
 	}
 
 	results := checkCardsBatch(client, sacAPI, reqData.Cards, sites, proxies, concurrency)
@@ -1906,7 +1906,7 @@ func handleCheckSSE(w http.ResponseWriter, r *http.Request, cards []Card, sites 
 	}
 	sacAPI := os.Getenv("SAC_API")
 	if sacAPI == "" {
-		sacAPI = "https://sac-1-qg37.onrender.com"
+		sacAPI = "https://sac-hz4s.onrender.com"
 	}
 
 	var allResults []CheckResult
@@ -3003,7 +3003,7 @@ func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []s
 	}
 	sacAPI := os.Getenv("SAC_API")
 	if sacAPI == "" {
-		sacAPI = "https://sac-1-qg37.onrender.com"
+		sacAPI = "https://sac-hz4s.onrender.com"
 	}
 
 	results := make([]CheckResult, len(cards))
