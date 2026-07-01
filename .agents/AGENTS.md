@@ -34,3 +34,15 @@ A reusable template for reverse-engineering any website into a clean, modern Nex
 - **Pixel-perfect emulation** — match the target's spacing, colors, typography exactly
 - **No personal aesthetic changes during emulation phase** — match 1:1 first, custom
 
+# Language Rules
+- **Vietnamese Response**: Always communicate and respond to the user in Vietnamese.
+
+# MCP Integration Rules
+- **Maximize MCP Tool Usage**: Always leverage available MCP servers (like `codebase-memory-mcp` for codebase knowledge/navigation, `sequential-thinking` for structured reasoning, etc.) to improve understanding, analysis, and quality of generated code.
+
+# Custom Skills Integration Rules
+When performing coding, styling, planning, or deployment tasks, you **MUST** automatically load, refer to, and strictly follow the instructions in the following installed skills under `.agents/skills/`:
+- **Design & Styling (Tailwind v4 / Aesthetics)**: Refer to `minimalist-ui`, `industrial-brutalist-ui`, `design-taste-frontend`, `high-end-visual-design`, `web-design-guidelines`, and `frontend-design` for pixel-perfect emulation and premium look.
+- **Development Workflow (Superpowers)**: Refer to `brainstorming`, `writing-plans`, `executing-plans`, `test-driven-development`, and `systematic-debugging` to write specifications, plans, and tests before writing actual code.
+- **Next.js & Vercel Best Practices**: Refer to `vercel-react-best-practices`, `vercel-composition-patterns`, `vercel-optimize`, `react-best-practices`, `nextjs-best-practices`, `nextjs-app-router-patterns`, `frontend-developer`, `tailwind-patterns`, and `frontend-api-integration-patterns` to write clean React/Next.js code and optimize build performance and API integration.
+

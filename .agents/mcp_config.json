@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "claude-context": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@zilliz/claude-context-mcp@latest"
+      ]
+    },
+    "code-graph": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@sdsrs/code-graph"
+      ]
+    }
+  }
+}
