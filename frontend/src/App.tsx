@@ -324,8 +324,10 @@ export default function App() {
       if (saved === 'standard' || saved === 'lite') {
         return saved
       }
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+      return isMobile ? 'lite' : 'standard'
     }
-    return 'lite' // Default to 'lite' on mobile for super smooth performance
+    return 'standard'
   })
 
   const handleMobileModeChange = (newMode: 'standard' | 'lite') => {
