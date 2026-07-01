@@ -2727,6 +2727,32 @@ func generateResultFile(taskID int, total int, results []CheckResult) (string, e
 	return filePath, nil
 }
 
+func generateCategoryFile(taskID int, category string, results []CheckResult) (string, error) {
+	err := os.MkdirAll("data/results", 0755)
+	if err != nil {
+		return "", err
+	}
+	filePath := fmt.Sprintf("data/results/%s_%d.txt", category, taskID)
+	f, err := os.Create(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	writer := bufio.NewWriter(f)
+	for _, r := range results {
+		if r.Card != "" {
+			if r.Msg != "" {
+				fmt.Fprintf(writer, "%s | %s\n", r.Card, r.Msg)
+			} else {
+				fmt.Fprintf(writer, "%s\n", r.Card)
+			}
+		}
+	}
+	writer.Flush()
+	return filePath, nil
+}
+
 func checkCardsBatchCtx(ctx context.Context, client *http.Client, sacAPI string, cards []Card, sites []string, proxies []string, concurrency int, onCardChecked func(index int, res CheckResult)) []CheckResult {
 	if concurrency <= 0 {
 		concurrency = 1000
@@ -2993,19 +3019,12 @@ func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []s
 	default:
 	}
 
-	filePath, err := generateResultFile(taskID, len(validFinalResults), validFinalResults)
-	var filePathVal sql.NullString
-	if err == nil {
-		filePathVal.String = filePath
-		filePathVal.Valid = true
-	}
-
 	resultsJSON, _ := json.Marshal(validFinalResults)
 	_, _ = db.Exec(`
 		UPDATE check_tasks 
-		SET status = $1, checked_cards = $2, results = $3, result_file_path = $4, updated_at = CURRENT_TIMESTAMP 
-		WHERE id = $5
-	`, status, len(validFinalResults), string(resultsJSON), filePathVal, taskID)
+		SET status = $1, checked_cards = $2, results = $3, updated_at = CURRENT_TIMESTAMP 
+		WHERE id = $4
+	`, status, len(validFinalResults), string(resultsJSON), taskID)
 
 	broadcastTaskUpdate(userID, map[string]interface{}{
 		"type":          "task_status",
@@ -3015,15 +3034,63 @@ func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []s
 		"checked_cards": len(validFinalResults),
 	})
 
-	if filePathVal.Valid {
-		caption := fmt.Sprintf("MLSN Checker Task #%d completed!\nStatus: %s\nTotal Cards: %d", taskID, status, len(validFinalResults))
-		errTelegram := sendTelegramDocument(userID, filePath, caption)
-		if errTelegram != nil {
-			log.Printf("Failed to send telegram file for task %d: %v", taskID, errTelegram)
-		} else {
-			_, _ = db.Exec("UPDATE check_tasks SET telegram_sent = TRUE WHERE id = $1", taskID)
+	// Generate and send separate category files
+	categories := []struct {
+		name   string
+		filter func(status string) bool
+	}{
+		{"CHARGED", func(s string) bool { return s == "CHARGED" }},
+		{"LIVE", func(s string) bool { return s == "LIVE" }},
+		{"3DS", func(s string) bool { return s == "OTP_REQUIRED" }},
+		{"LOW", func(s string) bool { return s == "LOW_BALANCE" }},
+		{"FRAUD", func(s string) bool { return s == "FRAUD" }},
+		{"DIE", func(s string) bool { return s == "DEAD" }},
+		{"ERROR", func(s string) bool {
+			return s != "CHARGED" && s != "LIVE" && s != "OTP_REQUIRED" && s != "LOW_BALANCE" && s != "FRAUD" && s != "DEAD"
+		}},
+	}
+
+	var generatedFiles []string
+	telegramSentOk := false
+	hasFiles := false
+
+	for _, cat := range categories {
+		var catResults []CheckResult
+		for _, r := range validFinalResults {
+			if cat.filter(r.Status) {
+				catResults = append(catResults, r)
+			}
+		}
+
+		if len(catResults) > 0 {
+			hasFiles = true
+			filePath, errGen := generateCategoryFile(taskID, cat.name, catResults)
+			if errGen == nil {
+				generatedFiles = append(generatedFiles, filePath)
+				caption := fmt.Sprintf("MLSN Checker Task #%d - %s\nTotal: %d\nStatus: %s", taskID, cat.name, len(catResults), status)
+				errTelegram := sendTelegramDocument(userID, filePath, caption)
+				if errTelegram != nil {
+					log.Printf("Failed to send telegram file for task %d [%s]: %v", taskID, cat.name, errTelegram)
+				} else {
+					telegramSentOk = true
+				}
+			} else {
+				log.Printf("Failed to generate file for task %d [%s]: %v", taskID, cat.name, errGen)
+			}
 		}
 	}
+
+	// Clean up local files
+	for _, fPath := range generatedFiles {
+		_ = os.Remove(fPath)
+	}
+
+	// Clean up database results and files to keep it lightweight
+	_, _ = db.Exec(`
+		UPDATE check_tasks 
+		SET results = '[]'::jsonb, result_file_path = NULL, telegram_sent = $1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2
+	`, telegramSentOk || !hasFiles, taskID)
 }
 
 func apiCheckStartHandler(w http.ResponseWriter, r *http.Request) {
