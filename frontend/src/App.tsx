@@ -520,15 +520,11 @@ export default function App() {
 
   // Auto scroll console to bottom
   useEffect(() => {
-    if (isRunning && consoleEndRef.current) {
-      if (consoleContainerRef.current) {
-        const container = consoleContainerRef.current
-        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150
-        if (isAtBottom) {
-          consoleEndRef.current.scrollIntoView({ behavior: 'auto' })
-        }
-      } else {
-        consoleEndRef.current.scrollIntoView({ behavior: 'auto' })
+    if (isRunning && consoleContainerRef.current) {
+      const container = consoleContainerRef.current
+      const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150
+      if (isAtBottom) {
+        container.scrollTop = container.scrollHeight
       }
     }
   }, [results, isRunning])
