@@ -782,6 +782,14 @@ func initDB() {
 	`)
 	if err != nil {
 		log.Println("DB table creation failed:", err)
+	} else {
+		// Clean up any tasks left in 'running' state from previous server run
+		_, errClean := db.Exec("UPDATE check_tasks SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE status = 'running'")
+		if errClean != nil {
+			log.Println("Failed to clean up running tasks on startup:", errClean)
+		} else {
+			log.Println("Cleaned up stale running tasks successfully.")
+		}
 	}
 }
 
@@ -2040,6 +2048,32 @@ func apiCheckHandler(w http.ResponseWriter, r *http.Request) {
 	if len(proxies) == 0 {
 		proxies = getProxies(userID, isAdmin)
 	}
+
+	if !isAdmin && len(cards) > 20000 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Giới hạn tối đa 20.000 thẻ cho mỗi task! / Maximum limit of 20,000 cards per task!"})
+		return
+	}
+
+	if db != nil {
+		var hasRunning bool
+		errRunning := db.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM check_tasks 
+				WHERE user_id = $1 AND status = 'running'
+			)
+		`, userID).Scan(&hasRunning)
+		if errRunning == nil && hasRunning {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": "Bạn đang có một task khác đang chạy! Vui lòng đợi task đó hoàn thành hoặc hủy nó trước. / You already have a task running! Please wait or cancel it first.",
+			})
+			return
+		}
+	}
+
 	handleCheckSSE(w, r, cards, sites, proxies, concurrency)
 }
 
@@ -2103,6 +2137,29 @@ func apiCheckUploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	if db == nil {
 		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	if !isAdmin && len(cards) > 20000 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Giới hạn tối đa 20.000 thẻ cho mỗi task! / Maximum limit of 20,000 cards per task!"})
+		return
+	}
+
+	var hasRunning bool
+	errRunning := db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM check_tasks 
+			WHERE user_id = $1 AND status = 'running'
+		)
+	`, userID).Scan(&hasRunning)
+	if errRunning == nil && hasRunning {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Bạn đang có một task khác đang chạy! Vui lòng đợi task đó hoàn thành hoặc hủy nó trước khi tạo task mới. / You have another task running! Please wait for it to complete or cancel it first.",
+		})
 		return
 	}
 
@@ -3147,6 +3204,29 @@ func apiCheckStartHandler(w http.ResponseWriter, r *http.Request) {
 
 	if db == nil {
 		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	if !isAdmin && len(cards) > 20000 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Giới hạn tối đa 20.000 thẻ cho mỗi task! / Maximum limit of 20,000 cards per task!"})
+		return
+	}
+
+	var hasRunning bool
+	errRunning := db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM check_tasks 
+			WHERE user_id = $1 AND status = 'running'
+		)
+	`, userID).Scan(&hasRunning)
+	if errRunning == nil && hasRunning {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "Bạn đang có một task khác đang chạy! Vui lòng đợi task đó hoàn thành hoặc hủy nó trước khi tạo task mới. / You have another task running! Please wait for it to complete or cancel it first.",
+		})
 		return
 	}
 

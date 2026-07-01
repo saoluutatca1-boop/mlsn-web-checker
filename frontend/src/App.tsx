@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { 
-  Play, Square, Trash2, Plus, X, UploadCloud, Database, 
+  Play, Square, Trash2, Plus, X, UploadCloud, Database, Scissors, 
   LogOut, Lock, User, Terminal, Server, ShieldCheck, CheckCircle2, AlertCircle,
   Menu, Download, Copy
 } from 'lucide-react'
@@ -92,31 +92,30 @@ function VisualAnalytics({ results, counters, cpmHistory }: {
   counters: any, 
   cpmHistory: { time: string, cpm: number }[] 
 }) {
+  const total = counters.LIVE + counters.DEAD + counters.OTP_REQUIRED + counters.LOW_BALANCE + counters.ERROR;
+  
   const segments = [
-    { label: 'CHARGED', count: counters.charged, color: '#34d399' },
-    { label: 'LIVE', count: counters.live, color: '#22d3ee' },
-    { label: '3DS', count: counters.otp, color: '#60a5fa' },
-    { label: 'LOW', count: counters.low, color: '#c084fc' },
-    { label: 'FRAUD', count: counters.fraud, color: '#fb923c' },
-    { label: 'DEAD', count: counters.dead, color: '#f43f5e' },
-    { label: 'ERR', count: counters.err, color: '#fbbf24' },
-  ].filter(s => s.count > 0);
+    { label: 'LIVE', count: counters.LIVE, color: '#10b981' },
+    { label: 'DEAD', count: counters.DEAD, color: '#f43f5e' },
+    { label: 'OTP', count: counters.OTP_REQUIRED, color: '#60a5fa' },
+    { label: 'LOW BAL', count: counters.LOW_BALANCE, color: '#a855f7' },
+    { label: 'ERROR', count: counters.ERROR, color: '#f59e0b' }
+  ];
 
-  const total = segments.reduce((sum, s) => sum + s.count, 0);
   let accumulatedPercent = 0;
 
-  const maxCpm = Math.max(...cpmHistory.map(d => d.cpm), 10);
-  const linePoints = cpmHistory.map((d, idx) => {
-    const x = 40 + idx * (240 / Math.max(cpmHistory.length - 1, 1));
-    const y = 130 - d.cpm * (110 / maxCpm);
-    return { x, y, ...d };
+  // Render line chart for CPM speed
+  const maxCpm = Math.max(...cpmHistory.map(h => h.cpm), 10);
+  const linePoints = cpmHistory.map((h, i) => {
+    const x = 40 + (i * (240 / Math.max(cpmHistory.length - 1, 1)));
+    const y = 130 - ((h.cpm / maxCpm) * 110);
+    return `${x},${y}`;
   });
+  
+  const linePath = linePoints.length > 0 ? `M ${linePoints.join(' L ')}` : '';
+  const fillPath = linePoints.length > 0 ? `${linePath} L ${40 + ((cpmHistory.length - 1) * (240 / Math.max(cpmHistory.length - 1, 1)))},130 L 40,130 Z` : '';
 
-  const linePath = linePoints.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-  const fillPath = linePoints.length > 0 
-    ? `${linePath} L ${linePoints[linePoints.length - 1].x} 130 L ${linePoints[0].x} 130 Z`
-    : '';
-
+  // Render bar chart for Latency
   const siteStatsMap: { [site: string]: { totalTime: number, count: number } } = {};
   results.forEach(r => {
     if (!r.site) return;
@@ -137,180 +136,186 @@ function VisualAnalytics({ results, counters, cpmHistory }: {
     };
   }).sort((a, b) => a.avgLatency - b.avgLatency).slice(0, 5);
 
-  const maxLatency = Math.max(...siteStats.map(s => s.avgLatency), 2);
+  const maxLatency = Math.max(...siteStats.map(s => s.avgLatency), 2.0);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-4 md:p-6 bg-slate-950/20 text-slate-200 rounded-b-2xl font-tech">
-      <div className="glass-panel p-4 flex flex-col items-center justify-between min-h-[220px]">
-        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 self-start flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> RESULT DISTRIBUTION
-        </div>
-        
-        {total === 0 ? (
-          <div className="flex flex-col items-center justify-center py-6 text-slate-600 text-[10px] italic">
-            <svg className="w-24 h-24 text-slate-800" viewBox="0 0 200 200">
-              <circle cx="100" cy="100" r="50" fill="transparent" stroke="currentColor" strokeWidth="10" strokeDasharray="314.16" />
-            </svg>
-            <span className="mt-2">// Waiting for card check results</span>
+      <div className="double-bezel-card glow-cyan min-h-[220px]">
+        <div className="double-bezel-inner flex flex-col items-center justify-between !p-4">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 self-start flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> RESULT DISTRIBUTION
           </div>
-        ) : (
-          <div className="flex items-center justify-center w-full gap-4 flex-wrap md:flex-nowrap">
-            <svg className="w-32 h-32 drop-shadow-[0_0_8px_rgba(6,182,212,0.15)]" viewBox="0 0 200 200">
-              <circle cx="100" cy="100" r="50" fill="transparent" stroke="#0f172a" strokeWidth="15" />
-              {segments.map((s, idx) => {
-                const percent = s.count / total;
-                const dasharray = `${percent * 314.16} 314.16`;
-                const dashoffset = -accumulatedPercent * 314.16;
-                accumulatedPercent += percent;
-                return (
-                  <circle
-                    key={idx}
-                    cx="100"
-                    cy="100"
-                    r="50"
-                    fill="transparent"
-                    stroke={s.color}
-                    strokeWidth="15"
-                    strokeDasharray={dasharray}
-                    strokeDashoffset={dashoffset}
-                    transform="rotate(-90 100 100)"
-                    className="transition-all duration-500"
-                  />
-                );
-              })}
-              <text x="100" y="95" textAnchor="middle" fill="#64748b" fontSize="8" fontWeight="bold" letterSpacing="1">TOTAL</text>
-              <text x="100" y="115" textAnchor="middle" fill="#ffffff" fontSize="16" fontWeight="bold">{total}</text>
-            </svg>
-            
-            <div className="flex flex-col gap-1.5 text-[9px] font-bold text-slate-400 min-w-[100px]">
-              {segments.map((s, idx) => (
-                <div key={idx} className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
-                    <span>{s.label}</span>
+          
+          {total === 0 ? (
+            <div className="flex flex-col items-center justify-center py-6 text-slate-600 text-[10px] italic">
+              <svg className="w-24 h-24 text-slate-800" viewBox="0 0 200 200">
+                <circle cx="100" cy="100" r="50" fill="transparent" stroke="currentColor" strokeWidth="10" strokeDasharray="314.16" />
+              </svg>
+              <span className="mt-2">// Waiting for card check results</span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center w-full gap-4 flex-wrap md:flex-nowrap">
+              <svg className="w-32 h-32 drop-shadow-[0_0_8px_rgba(6,182,212,0.15)]" viewBox="0 0 200 200">
+                <circle cx="100" cy="100" r="50" fill="transparent" stroke="#0f172a" strokeWidth="15" />
+                {segments.map((s, idx) => {
+                  const percent = s.count / total;
+                  const dasharray = `${percent * 314.16} 314.16`;
+                  const dashoffset = -accumulatedPercent * 314.16;
+                  accumulatedPercent += percent;
+                  return (
+                    <circle
+                      key={idx}
+                      cx="100"
+                      cy="100"
+                      r="50"
+                      fill="transparent"
+                      stroke={s.color}
+                      strokeWidth="15"
+                      strokeDasharray={dasharray}
+                      strokeDashoffset={dashoffset}
+                      transform="rotate(-90 100 100)"
+                      className="transition-all duration-500"
+                    />
+                  );
+                })}
+                <text x="100" y="95" textAnchor="middle" fill="#64748b" fontSize="8" fontWeight="bold" letterSpacing="1">TOTAL</text>
+                <text x="100" y="115" textAnchor="middle" fill="#ffffff" fontSize="16" fontWeight="bold">{total}</text>
+              </svg>
+              
+              <div className="flex flex-col gap-1.5 text-[9px] font-bold text-slate-400 min-w-[100px]">
+                {segments.map((s, idx) => (
+                  <div key={idx} className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                      <span>{s.label}</span>
+                    </div>
+                    <span className="text-white">{s.count} ({Math.round(s.count/total*100)}%)</span>
                   </div>
-                  <span className="text-white">{s.count} ({Math.round(s.count/total*100)}%)</span>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      <div className="glass-panel p-4 flex flex-col justify-between min-h-[220px]">
-        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> SPEED (CARDS / MINUTE)
-        </div>
-
-        {cpmHistory.length < 2 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-slate-600 text-[10px] italic">
-            // Chart initializing (sampling CPM speed every 5s)...
+      <div className="double-bezel-card glow-purple min-h-[220px]">
+        <div className="double-bezel-inner flex flex-col justify-between !p-4">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> SPEED (CARDS / MINUTE)
           </div>
-        ) : (
-          <div className="w-full h-full flex flex-col">
-            <svg className="w-full h-32" viewBox="0 0 300 150">
-              <defs>
-                <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.3" />
-                  <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
-              <line x1="40" y1="20" x2="280" y2="20" stroke="#1e293b" strokeDasharray="3 3" />
-              <line x1="40" y1="75" x2="280" y2="75" stroke="#1e293b" strokeDasharray="3 3" />
-              <line x1="40" y1="130" x2="280" y2="130" stroke="#334155" />
-              
-              {fillPath && <path d={fillPath} fill="url(#lineGrad)" />}
-              {linePath && <path d={linePath} fill="transparent" stroke="#06b6d4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
-              
-              <text x="35" y="23" textAnchor="end" fill="#64748b" fontSize="8" fontWeight="bold">{Math.round(maxCpm)}</text>
-              <text x="35" y="78" textAnchor="end" fill="#64748b" fontSize="8" fontWeight="bold">{Math.round(maxCpm/2)}</text>
-              <text x="35" y="133" textAnchor="end" fill="#64748b" fontSize="8" fontWeight="bold">0</text>
-              
-              <text x="280" y="15" textAnchor="end" fill="#06b6d4" fontSize="9" fontWeight="bold">
-                CPM: {cpmHistory[cpmHistory.length - 1].cpm}
-              </text>
-            </svg>
-            <div className="flex justify-between px-10 text-[7.5px] text-slate-500 font-bold">
-              <span>{cpmHistory[0].time}</span>
-              <span>Timeline (5s ticks)</span>
-              <span>{cpmHistory[cpmHistory.length - 1].time}</span>
+
+          {cpmHistory.length < 2 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-slate-600 text-[10px] italic">
+              // Chart initializing (sampling CPM speed every 5s)...
             </div>
-          </div>
-        )}
-      </div>
-
-      <div className="glass-panel p-4 flex flex-col justify-between min-h-[220px]">
-        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> GATEWAY LATENCY (SEC)
-        </div>
-
-        {siteStats.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-slate-600 text-[10px] italic">
-            // No latency data collected yet
-          </div>
-        ) : (
-          <div className="w-full h-full flex flex-col">
-            <svg className="w-full h-32" viewBox="0 0 300 150">
-              <line x1="50" y1="120" x2="280" y2="120" stroke="#334155" />
-              {siteStats.map((s, idx) => {
-                const w = 220 / siteStats.length;
-                const x = 60 + idx * w;
-                const h = (s.avgLatency / maxLatency) * 90;
-                const barHeight = Math.max(h, 5);
-                const barWidth = Math.min(w - 15, 25);
+          ) : (
+            <div className="w-full h-full flex flex-col">
+              <svg className="w-full h-32" viewBox="0 0 300 150">
+                <defs>
+                  <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
+                  </linearGradient>
+                </defs>
+                <line x1="40" y1="20" x2="280" y2="20" stroke="#1e293b" strokeDasharray="3 3" />
+                <line x1="40" y1="75" x2="280" y2="75" stroke="#1e293b" strokeDasharray="3 3" />
+                <line x1="40" y1="130" x2="280" y2="130" stroke="#334155" />
                 
-                return (
-                  <g key={idx}>
-                    <rect
-                      x={x + (w - barWidth)/2}
-                      y={120 - barHeight}
-                      width={barWidth}
-                      height={barHeight}
-                      fill="#22d3ee"
-                      opacity="0.15"
-                      rx="3"
-                      filter="blur(4px)"
-                    />
-                    <rect
-                      x={x + (w - barWidth)/2}
-                      y={120 - barHeight}
-                      width={barWidth}
-                      height={barHeight}
-                      fill="url(#barGrad)"
-                      rx="3"
-                    />
-                    <text
-                      x={x + (w/2)}
-                      y={115 - barHeight}
-                      textAnchor="middle"
-                      fill="#22d3ee"
-                      fontSize="7.5"
-                      fontWeight="bold"
-                    >
-                      {s.avgLatency.toFixed(2)}s
-                    </text>
-                    <text
-                      x={x + (w/2)}
-                      y="135"
-                      textAnchor="middle"
-                      fill="#64748b"
-                      fontSize="7.5"
-                      fontWeight="bold"
-                    >
-                      {s.site.length > 8 ? s.site.slice(0, 7) + '..' : s.site}
-                    </text>
-                  </g>
-                );
-              })}
-              <defs>
-                <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#22d3ee" />
-                  <stop offset="100%" stopColor="#06b6d4" />
-                </linearGradient>
-              </defs>
-            </svg>
+                {fillPath && <path d={fillPath} fill="url(#lineGrad)" />}
+                {linePath && <path d={linePath} fill="transparent" stroke="#06b6d4" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+                
+                <text x="35" y="23" textAnchor="end" fill="#64748b" fontSize="8" fontWeight="bold">{Math.round(maxCpm)}</text>
+                <text x="35" y="78" textAnchor="end" fill="#64748b" fontSize="8" fontWeight="bold">{Math.round(maxCpm/2)}</text>
+                <text x="35" y="133" textAnchor="end" fill="#64748b" fontSize="8" fontWeight="bold">0</text>
+                
+                <text x="280" y="15" textAnchor="end" fill="#06b6d4" fontSize="9" fontWeight="bold">
+                  CPM: {cpmHistory[cpmHistory.length - 1].cpm}
+                </text>
+              </svg>
+              <div className="flex justify-between px-10 text-[7.5px] text-slate-500 font-bold">
+                <span>{cpmHistory[0].time}</span>
+                <span>Timeline (5s ticks)</span>
+                <span>{cpmHistory[cpmHistory.length - 1].time}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="double-bezel-card glow-emerald min-h-[220px]">
+        <div className="double-bezel-inner flex flex-col justify-between !p-4">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> GATEWAY LATENCY (SEC)
           </div>
-        )}
+
+          {siteStats.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-slate-600 text-[10px] italic">
+              // No latency data collected yet
+            </div>
+          ) : (
+            <div className="w-full h-full flex flex-col">
+              <svg className="w-full h-32" viewBox="0 0 300 150">
+                <line x1="50" y1="120" x2="280" y2="120" stroke="#334155" />
+                {siteStats.map((s, idx) => {
+                  const w = 220 / siteStats.length;
+                  const x = 60 + idx * w;
+                  const h = (s.avgLatency / maxLatency) * 90;
+                  const barHeight = Math.max(h, 5);
+                  const barWidth = Math.min(w - 15, 25);
+                  
+                  return (
+                    <g key={idx}>
+                      <rect
+                        x={x + (w - barWidth)/2}
+                        y={120 - barHeight}
+                        width={barWidth}
+                        height={barHeight}
+                        fill="#22d3ee"
+                        opacity="0.15"
+                        rx="3"
+                        filter="blur(4px)"
+                      />
+                      <rect
+                        x={x + (w - barWidth)/2}
+                        y={120 - barHeight}
+                        width={barWidth}
+                        height={barHeight}
+                        fill="url(#barGrad)"
+                        rx="3"
+                      />
+                      <text
+                        x={x + (w/2)}
+                        y={115 - barHeight}
+                        textAnchor="middle"
+                        fill="#22d3ee"
+                        fontSize="7.5"
+                        fontWeight="bold"
+                      >
+                        {s.avgLatency.toFixed(2)}s
+                      </text>
+                      <text
+                        x={x + (w/2)}
+                        y="135"
+                        textAnchor="middle"
+                        fill="#64748b"
+                        fontSize="7.5"
+                        fontWeight="bold"
+                      >
+                        {s.site.length > 8 ? s.site.slice(0, 7) + '..' : s.site}
+                      </text>
+                    </g>
+                  );
+                })}
+                <defs>
+                  <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#22d3ee" />
+                    <stop offset="100%" stopColor="#06b6d4" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -959,11 +964,144 @@ export default function App() {
     }
   }
 
-  const runChecker = async () => {
+  // Smart Card Splitter States
+  const [splitFile, setSplitFile] = useState<File | null>(null)
+  const [splitMode, setSplitMode] = useState<'cards' | 'size'>('cards')
+  const [splitValue, setSplitValue] = useState<number>(5000)
+  const [splitResults, setSplitResults] = useState<{
+    name: string
+    content: string
+    cardCount: number
+    sizeBytes: number
+  }[]>([])
+  const [splitDragOver, setSplitDragOver] = useState(false)
+
+  const handleSplitFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    setSplitDragOver(false)
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setSplitFile(e.dataTransfer.files[0])
+      setSplitResults([])
+    }
+  }
+
+  const handleSplitFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setSplitFile(e.target.files[0])
+      setSplitResults([])
+    }
+  }
+
+  const handleExecuteSplit = () => {
+    if (!splitFile) {
+      showToast("Please load a file first", "err")
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = e.target?.result as string
+      if (!text) {
+        showToast("Empty file content", "err")
+        return
+      }
+
+      const lines = text.split(/\r?\n/)
+      const validLines = lines.filter(l => l.trim() !== '')
+
+      if (validLines.length === 0) {
+        showToast("No text lines found in file", "err")
+        return
+      }
+
+      const results: { name: string; content: string; cardCount: number; sizeBytes: number }[] = []
+      const baseName = splitFile.name.replace(/\.[^/.]+$/, "")
+
+      if (splitMode === 'cards') {
+        const chunkSize = splitValue <= 0 ? 5000 : splitValue
+        let partIdx = 1
+        for (let i = 0; i < validLines.length; i += chunkSize) {
+          const chunk = validLines.slice(i, i + chunkSize)
+          const content = chunk.join('\n')
+          const byteSize = new Blob([content]).size
+          results.push({
+            name: `${baseName}_part_${partIdx}.txt`,
+            content: content,
+            cardCount: chunk.length,
+            sizeBytes: byteSize
+          })
+          partIdx++
+        }
+      } else {
+        const maxBytes = (splitValue <= 0 ? 500 : splitValue) * 1024
+        let partIdx = 1
+        let currentChunk: string[] = []
+        let currentBytes = 0
+
+        for (let i = 0; i < validLines.length; i++) {
+          const line = validLines[i]
+          const lineBytes = new Blob([line + '\n']).size
+          
+          if (currentChunk.length > 0 && currentBytes + lineBytes > maxBytes) {
+            const content = currentChunk.join('\n')
+            results.push({
+              name: `${baseName}_part_${partIdx}.txt`,
+              content: content,
+              cardCount: currentChunk.length,
+              sizeBytes: new Blob([content]).size
+            })
+            partIdx++
+            currentChunk = [line]
+            currentBytes = lineBytes
+          } else {
+            currentChunk.push(line)
+            currentBytes += lineBytes
+          }
+        }
+
+        if (currentChunk.length > 0) {
+          const content = currentChunk.join('\n')
+          results.push({
+            name: `${baseName}_part_${partIdx}.txt`,
+            content: content,
+            cardCount: currentChunk.length,
+            sizeBytes: new Blob([content]).size
+          })
+        }
+      }
+
+      setSplitResults(results)
+      showToast(`Successfully split into ${results.length} files`)
+    }
+    reader.readAsText(splitFile)
+  }
+
+  const handleDownloadPart = (part: typeof splitResults[0]) => {
+    const blob = new Blob([part.content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = part.name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const handleCheckPart = (part: typeof splitResults[0]) => {
+    runChecker(part.content)
+  }
+
+  const runChecker = async (overrideContent?: string) => {
     if (isRunning) return
     
     let rawText = ''
-    if (uploadedFileContent) {
+    if (overrideContent !== undefined) {
+      rawText = overrideContent
+      setCardInput(overrideContent)
+      setUploadedFileName('')
+      setUploadedFileContent('')
+    } else if (uploadedFileContent) {
       rawText = uploadedFileContent
     } else {
       rawText = cardInput.trim()
@@ -1002,7 +1140,14 @@ export default function App() {
       })
 
       if (!res.ok) {
-        throw new Error(`Start request failed with status ${res.status}`)
+        let errMsg = `Start request failed with status ${res.status}`
+        try {
+          const errData = await res.json()
+          if (errData && errData.error) {
+            errMsg = errData.error
+          }
+        } catch (_) {}
+        throw new Error(errMsg)
       }
 
       const data = await res.json()
@@ -1245,7 +1390,7 @@ export default function App() {
       {/* Background Gradients */}
       {mobileMode !== 'lite' && (
         <>
-          <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.012)_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
+          <div className="bg-grid-animation" />
           <div className="absolute top-0 right-1/4 w-[600px] h-[600px] bg-cyan-500/5 blur-[160px] rounded-full pointer-events-none" />
           <div className="absolute bottom-0 left-1/4 w-[600px] h-[600px] bg-purple-500/5 blur-[160px] rounded-full pointer-events-none" />
         </>
@@ -1482,129 +1627,131 @@ export default function App() {
               <p className="text-[9.5px] tracking-wider text-slate-400 font-tech mt-1 uppercase">AUTHENTICATION REQUIRED</p>
             </div>
 
-            <div className="glass-panel rounded-2xl p-6 shadow-2xl flex flex-col gap-6 hover:border-slate-800/60 transition-all duration-300">
-              {/* Tab selector */}
-              <div className="grid grid-cols-2 bg-slate-950/85 p-1.5 rounded-xl border border-slate-900 text-[10px] font-tech font-bold relative overflow-hidden select-none">
-                <div 
-                  className={`absolute top-1.5 bottom-1.5 left-1.5 w-[calc(50%-6px)] rounded-lg transition-all duration-300 ease-out-back ${
-                    activeLoginTab === 'telegram' 
-                      ? 'bg-cyan-500/10 border border-cyan-500/20 translate-x-0' 
-                      : 'bg-purple-500/10 border border-purple-500/20 translate-x-full'
-                  }`} 
-                />
-                
-                <button 
-                  type="button"
-                  onClick={() => setActiveLoginTab('telegram')}
-                  className={`py-2 rounded-lg z-10 transition-all text-center ${
-                    activeLoginTab === 'telegram' ? 'text-cyan-400' : 'text-slate-500 hover:text-slate-405'
-                  }`}
-                >
-                  TELEGRAM ACCESS
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setActiveLoginTab('admin')}
-                  className={`py-2 rounded-lg z-10 transition-all text-center ${
-                    activeLoginTab === 'admin' ? 'text-purple-400' : 'text-slate-500 hover:text-slate-455'
-                  }`}
-                >
-                  ADMIN PORTAL
-                </button>
-              </div>
+            <div className={`double-bezel-card ${activeLoginTab === 'telegram' ? 'glow-cyan' : 'glow-purple'}`}>
+              <div className="double-bezel-inner flex flex-col gap-6">
+                {/* Tab selector */}
+                <div className="grid grid-cols-2 bg-slate-950/85 p-1.5 rounded-xl border border-slate-900 text-[10px] font-tech font-bold relative overflow-hidden select-none">
+                  <div 
+                    className={`absolute top-1.5 bottom-1.5 left-1.5 w-[calc(50%-6px)] rounded-lg transition-all duration-300 ease-out-back ${
+                      activeLoginTab === 'telegram' 
+                        ? 'bg-cyan-500/10 border border-cyan-500/20 translate-x-0' 
+                        : 'bg-purple-500/10 border border-purple-500/20 translate-x-full'
+                    }`} 
+                  />
+                  
+                  <button 
+                    type="button"
+                    onClick={() => setActiveLoginTab('telegram')}
+                    className={`py-2 rounded-lg z-10 transition-all text-center ${
+                      activeLoginTab === 'telegram' ? 'text-cyan-400' : 'text-slate-500 hover:text-slate-405'
+                    }`}
+                  >
+                    TELEGRAM ACCESS
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setActiveLoginTab('admin')}
+                    className={`py-2 rounded-lg z-10 transition-all text-center ${
+                      activeLoginTab === 'admin' ? 'text-purple-400' : 'text-slate-500 hover:text-slate-455'
+                    }`}
+                  >
+                    ADMIN PORTAL
+                  </button>
+                </div>
 
-              {activeLoginTab === 'telegram' ? (
-                statsData.bot_username ? (
-                  <div className="flex flex-col gap-4 font-mono text-center">
-                    <div className="border border-cyan-500/10 bg-cyan-950/10 rounded-xl p-4 text-xs text-cyan-400 flex flex-col gap-3 text-left">
-                      <div className="flex items-center gap-2 font-bold text-white">
-                        <Server className="w-4 h-4 text-cyan-400" /> TELEGRAM BOT SYSTEM ACTIVE
+                {activeLoginTab === 'telegram' ? (
+                  statsData.bot_username ? (
+                    <div className="flex flex-col gap-4 font-mono text-center">
+                      <div className="border border-cyan-500/10 bg-cyan-950/10 rounded-xl p-4 text-xs text-cyan-400 flex flex-col gap-3 text-left">
+                        <div className="flex items-center gap-2 font-bold text-white">
+                          <Server className="w-4 h-4 text-cyan-400" /> TELEGRAM BOT SYSTEM ACTIVE
+                        </div>
+                        <p className="text-slate-300 text-[11px] leading-relaxed">
+                          To log in securely, message your Telegram bot and send the <code className="text-cyan-300 bg-cyan-950/40 px-1 py-0.5 rounded">/login</code> or <code className="text-cyan-300 bg-cyan-950/40 px-1 py-0.5 rounded">/start</code> command. The bot will send you a secure button to log in here.
+                        </p>
                       </div>
-                      <p className="text-slate-300 text-[11px] leading-relaxed">
-                        To log in securely, message your Telegram bot and send the <code className="text-cyan-300 bg-cyan-950/40 px-1 py-0.5 rounded">/login</code> or <code className="text-cyan-300 bg-cyan-950/40 px-1 py-0.5 rounded">/start</code> command. The bot will send you a secure button to log in here.
-                      </p>
+                      
+                      <a 
+                        href={`https://t.me/${statsData.bot_username}?start=login`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-955 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] text-center no-underline cursor-pointer active:scale-95 duration-200"
+                      >
+                        <Terminal className="w-4 h-4" /> START LOGIN SECURELY
+                      </a>
                     </div>
-                    
-                    <a 
-                      href={`https://t.me/${statsData.bot_username}?start=login`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] text-center no-underline cursor-pointer active:scale-95 duration-200"
-                    >
-                      <Terminal className="w-4 h-4" /> START LOGIN SECURELY
-                    </a>
-                  </div>
+                  ) : (
+                    <div className="flex flex-col gap-4 font-mono">
+                      <div className="border border-yellow-500/15 bg-yellow-500/5 rounded-xl p-3 text-[10px] text-yellow-400/80 flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                        <span>Using mock login as fallback since Telegram Widget is restricted to static hostname bindings in this environment.</span>
+                      </div>
+                      
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Telegram Username</label>
+                        <div className="relative">
+                          <User className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-505" />
+                          <input 
+                            type="text" 
+                            placeholder="@yourusername"
+                            value={mockUsername}
+                            onChange={(e) => setMockUsername(e.target.value)}
+                            className="w-full tech-input rounded-xl px-3 py-3 pl-10 text-sm text-slate-200 outline-none placeholder:text-slate-650"
+                          />
+                        </div>
+                      </div>
+                      
+                      <button 
+                        onClick={handleMockLogin}
+                        className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-955 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] active:scale-95 duration-200"
+                      >
+                        <Terminal className="w-4 h-4" /> LOG IN VIA TELEGRAM
+                      </button>
+                    </div>
+                  )
                 ) : (
-                  <div className="flex flex-col gap-4 font-mono">
-                    <div className="border border-yellow-500/15 bg-yellow-500/5 rounded-xl p-3 text-[10px] text-yellow-400/80 flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
-                      <span>Using mock login as fallback since Telegram Widget is restricted to static hostname bindings in this environment.</span>
-                    </div>
-                    
+                  <form onSubmit={handleAdminLogin} className="flex flex-col gap-4 font-mono">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Telegram Username</label>
+                      <label className="text-[10px] uppercase tracking-wider text-slate-550 font-bold">Admin Username</label>
                       <div className="relative">
-                        <User className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-500" />
+                        <User className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-505" />
                         <input 
                           type="text" 
-                          placeholder="@yourusername"
-                          value={mockUsername}
-                          onChange={(e) => setMockUsername(e.target.value)}
-                          className="w-full bg-slate-955/65 border border-slate-900 rounded-xl px-3 py-3 pl-10 text-sm text-slate-200 outline-none focus:border-cyan-500/40 focus:ring-1 focus:ring-cyan-500/20 transition-all placeholder:text-slate-600"
+                          placeholder="Username..."
+                          value={adminUsername}
+                          onChange={(e) => setAdminUsername(e.target.value)}
+                          className="w-full tech-input rounded-xl px-3 py-3 pl-10 text-sm text-slate-200 outline-none placeholder:text-slate-650"
                         />
                       </div>
                     </div>
-                    
+
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] uppercase tracking-wider text-slate-555 font-bold">Admin Password</label>
+                      <div className="relative">
+                        <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-505" />
+                        <input 
+                          type="password" 
+                          placeholder="Password..."
+                          value={adminPassword}
+                          onChange={(e) => setAdminPassword(e.target.value)}
+                          className="w-full tech-input rounded-xl px-3 py-3 pl-10 text-sm text-slate-200 outline-none placeholder:text-slate-650"
+                        />
+                      </div>
+                    </div>
+
                     <button 
-                      onClick={handleMockLogin}
-                      className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-955 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_15px_rgba(6,182,212,0.3)] active:scale-95 duration-200"
+                      type="submit"
+                      className="w-full py-3 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_15px_rgba(168,85,247,0.3)] active:scale-95 duration-200"
                     >
-                      <Terminal className="w-4 h-4" /> LOG IN VIA TELEGRAM
+                      <ShieldCheck className="w-4 h-4" /> AUTHORIZE ADMINISTRATIVE SESSION
                     </button>
-                  </div>
-                )
-              ) : (
-                <form onSubmit={handleAdminLogin} className="flex flex-col gap-4 font-mono">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] uppercase tracking-wider text-slate-550 font-bold">Admin Username</label>
-                    <div className="relative">
-                      <User className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-500" />
-                      <input 
-                        type="text" 
-                        placeholder="Username..."
-                        value={adminUsername}
-                        onChange={(e) => setAdminUsername(e.target.value)}
-                        className="w-full bg-slate-955/65 border border-slate-900 rounded-xl px-3 py-3 pl-10 text-sm text-slate-200 outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/20 transition-all placeholder:text-slate-600"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-[10px] uppercase tracking-wider text-slate-555 font-bold">Admin Password</label>
-                    <div className="relative">
-                      <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-500" />
-                      <input 
-                        type="password" 
-                        placeholder="Password..."
-                        value={adminPassword}
-                        onChange={(e) => setAdminPassword(e.target.value)}
-                        className="w-full bg-slate-955/65 border border-slate-900 rounded-xl px-3 py-3 pl-10 text-sm text-slate-200 outline-none focus:border-purple-500/40 focus:ring-1 focus:ring-purple-500/20 transition-all placeholder:text-slate-600"
-                      />
-                    </div>
-                  </div>
-
-                  <button 
-                    type="submit"
-                    className="w-full py-3 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_15px_rgba(168,85,247,0.3)] active:scale-95 duration-200"
-                  >
-                    <ShieldCheck className="w-4 h-4" /> AUTHORIZE ADMINISTRATIVE SESSION
-                  </button>
-                </form>
-              )}
+                  </form>
+                )}
+              </div>
             </div>
           </div>
         )}
-
+        
         {/* Tab: CHECKER */}
         {tab === 'checker' && (
           <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6 flex-1 tab-content-active">
@@ -1672,7 +1819,7 @@ export default function App() {
                 <div className="flex gap-2">
                   {!isRunning ? (
                     <button 
-                      onClick={runChecker}
+                      onClick={() => runChecker()}
                       className="bg-white hover:bg-slate-250 text-slate-950 font-tech text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all duration-300 hover:shadow-[0_0_20px_rgba(255,255,255,0.12)] active:scale-[0.98]"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" /> RUN CHECKER
@@ -1731,10 +1878,134 @@ export default function App() {
                 )}
               </div>
 
+              {/* Smart Card Splitter */}
+              <div className="double-bezel-card glow-cyan flex flex-col overflow-hidden font-tech">
+                <div className="double-bezel-inner flex flex-col gap-4">
+                  <div className="text-[10.5px] font-bold text-slate-400 tracking-wider flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> [03] SMART CARD SPLITTER
+                  </div>
+
+                  {/* Drag drop zone */}
+                  <div 
+                    onDragOver={(e) => { e.preventDefault(); setSplitDragOver(true); }}
+                    onDragLeave={() => setSplitDragOver(false)}
+                    onDrop={handleSplitFileDrop}
+                    onClick={() => document.getElementById('split-file-input')?.click()}
+                    className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all duration-305 bg-slate-955/40 ${
+                      splitDragOver ? 'border-cyan-400 bg-cyan-500/10 shadow-[0_0_15px_rgba(6,182,212,0.1)] scale-[1.01]' : 'border-slate-900 hover:border-cyan-500/30 hover:bg-slate-900/20'
+                    }`}
+                  >
+                    <UploadCloud className="w-5 h-5 text-slate-505 mx-auto mb-1.5 animate-pulse" />
+                    <div className="text-[9px] font-bold text-slate-300">
+                      {splitFile ? `LOADED: ${splitFile.name.toUpperCase()}` : "DRAG & DROP FILE TO SPLIT"}
+                    </div>
+                    <span className="text-[7.5px] text-slate-505 mt-0.5 block">
+                      {splitFile ? `${(splitFile.size / 1024).toFixed(1)} KB` : "Plain text .txt / .csv list"}
+                    </span>
+                    <input 
+                      type="file" 
+                      id="split-file-input" 
+                      accept=".txt,.csv" 
+                      className="hidden" 
+                      onChange={handleSplitFileChange}
+                    />
+                  </div>
+
+                  {splitFile && (
+                    <>
+                      {/* Split parameters */}
+                      <div className="flex flex-col gap-3 p-3 bg-slate-950/60 rounded-xl border border-slate-900">
+                        {/* Mode Selector */}
+                        <div className="grid grid-cols-2 bg-slate-955 p-1 rounded-lg text-[8.5px] font-bold relative overflow-hidden select-none">
+                          <div 
+                            className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded bg-white/10 border border-white/20 transition-all duration-300 ease-out-back ${
+                              splitMode === 'cards' ? 'translate-x-0' : 'translate-x-full'
+                            }`} 
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => { setSplitMode('cards'); setSplitValue(5000); }}
+                            className={`py-1 rounded z-10 text-center transition-all ${
+                              splitMode === 'cards' ? 'text-white' : 'text-slate-505 hover:text-slate-300'
+                            }`}
+                          >
+                            BY CARD COUNT
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => { setSplitMode('size'); setSplitValue(500); }}
+                            className={`py-1 rounded z-10 text-center transition-all ${
+                              splitMode === 'size' ? 'text-white' : 'text-slate-505 hover:text-slate-300'
+                            }`}
+                          >
+                            BY FILE SIZE
+                          </button>
+                        </div>
+
+                        {/* Value Input */}
+                        <div className="flex items-center justify-between gap-2 text-[9px] font-bold">
+                          <span className="text-slate-400 uppercase">
+                            {splitMode === 'cards' ? "CARDS PER PART" : "SIZE PER PART (KB)"}
+                          </span>
+                          <input 
+                            type="number"
+                            value={splitValue}
+                            onChange={(e) => setSplitValue(parseInt(e.target.value) || 0)}
+                            className="w-20 bg-slate-955 border border-slate-900 rounded px-2 py-1 text-right text-white font-bold outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+
+                        <button 
+                          onClick={handleExecuteSplit}
+                          className="w-full py-2 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-955 text-[9.5px] font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all hover:shadow-[0_0_10px_rgba(6,182,212,0.2)] active:scale-95 duration-200"
+                        >
+                          <Scissors className="w-3.5 h-3.5" /> EXECUTE SMART SPLIT
+                        </button>
+                      </div>
+
+                      {/* Split Results */}
+                      {splitResults.length > 0 && (
+                        <div className="flex flex-col gap-2 max-h-[220px] overflow-y-auto pr-1">
+                          <div className="text-[8px] text-slate-500 font-bold uppercase tracking-wider mb-1">
+                            SPLIT PARTS ({splitResults.length})
+                          </div>
+                          {splitResults.map((part, idx) => (
+                            <div key={idx} className="flex items-center justify-between bg-slate-950/40 border border-slate-900/60 p-2.5 rounded-lg text-[9px] font-bold hover:border-slate-800 transition-all">
+                              <div className="flex flex-col gap-0.5 max-w-[55%]">
+                                <span className="text-slate-200 truncate">{part.name}</span>
+                                <span className="text-[7.5px] text-slate-505">
+                                  {part.cardCount.toLocaleString()} cards • {(part.sizeBytes / 1024).toFixed(1)} KB
+                                </span>
+                              </div>
+                              <div className="flex gap-1.5 shrink-0">
+                                <button 
+                                  onClick={() => handleDownloadPart(part)}
+                                  className="px-2 py-1 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded flex items-center gap-1 transition-all active:scale-95"
+                                  title="Download Part"
+                                >
+                                  <Download className="w-3 h-3" />
+                                </button>
+                                <button 
+                                  onClick={() => handleCheckPart(part)}
+                                  className="px-2 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/25 hover:border-cyan-500/40 text-cyan-400 hover:text-cyan-300 rounded flex items-center gap-1 transition-all active:scale-95"
+                                  title="Check Cards in this Part"
+                                >
+                                  <Play className="w-3 h-3 fill-current" /> CHECK
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
               {/* Data Pools */}
               <div className="glass-panel glass-panel-glow-cyan rounded-2xl p-5 hover:border-slate-800/80 transition-all duration-300 flex flex-col gap-4">
                 <div className="font-tech text-[10.5px] font-bold text-slate-400 tracking-wider">
-                  <span>[03] DATA POOLS</span>
+                  <span>[04] DATA POOLS</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -1827,7 +2098,8 @@ export default function App() {
             </div>
 
             {/* Console Log Runner Panel */}
-            <div className="glass-panel rounded-2xl flex flex-col overflow-hidden hover:border-slate-800/60 transition-all duration-300">
+            <div className="double-bezel-card glow-cyan flex flex-col overflow-hidden">
+              <div className="double-bezel-inner flex flex-col !p-0">
               <div className="px-5 py-4 bg-slate-950/80 border-b border-slate-900/80 flex justify-between items-center shrink-0">
                 <div className="font-tech text-[10.5px] font-bold text-white tracking-wider flex items-center gap-2">
                   <Terminal className="w-4 h-4 text-slate-400" /> RUNNER CONSOLE
@@ -2075,7 +2347,7 @@ export default function App() {
                       }
 
                       return (
-                        <div key={i} className="flex flex-wrap md:flex-nowrap items-center gap-x-2.5 md:gap-x-3.5 gap-y-1.5 px-3 py-2 border-b border-slate-900/30 hover:bg-slate-900/40 transition-all whitespace-normal md:whitespace-nowrap animate-slide-up">
+                        <div key={i} className="flex flex-wrap md:flex-nowrap items-center gap-x-2.5 md:gap-x-3.5 gap-y-1.5 px-3 py-2 border-b border-slate-900/30 hover:bg-slate-900/40 transition-all whitespace-normal md:whitespace-nowrap result-item-cascade">
                           <span className="text-slate-600 text-[9px] shrink-0 font-medium">[{timeVal}]</span>
                           <span className={`px-2 py-0.5 border text-[8px] font-bold rounded-lg uppercase shrink-0 ${statusBg}`}>
                             [{displayStatus}]
@@ -2107,6 +2379,7 @@ export default function App() {
           ) : (
             <VisualAnalytics results={results} counters={counters} cpmHistory={cpmHistory} />
           )}
+            </div>
           </div>
         </div>
       )}
