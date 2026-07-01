@@ -52,6 +52,126 @@ interface Toast {
   type: 'ok' | 'err'
 }
 
+const validateLuhn = (cc: string): boolean => {
+  let sum = 0
+  let shouldDouble = false
+  for (let i = cc.length - 1; i >= 0; i--) {
+    let digit = parseInt(cc.charAt(i), 10)
+    if (isNaN(digit)) return false
+    if (shouldDouble) {
+      digit *= 2
+      if (digit > 9) digit -= 9
+    }
+    sum += digit
+    shouldDouble = !shouldDouble
+  }
+  return sum % 10 === 0
+}
+
+const validateExpiry = (mmStr: string, yyStr: string): boolean => {
+  const mm = parseInt(mmStr, 10)
+  let yy = parseInt(yyStr, 10)
+  if (isNaN(mm) || isNaN(yy) || mm < 1 || mm > 12) {
+    return false
+  }
+  
+  if (yyStr.length === 2) {
+    yy += 2000
+  } else if (yyStr.length === 4) {
+    // keep yy
+  } else {
+    return false
+  }
+  
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
+  
+  if (yy < currentYear) {
+    return false
+  }
+  if (yy === currentYear && mm < currentMonth) {
+    return false
+  }
+  return true
+}
+
+interface CleanResult {
+  cleanedText: string
+  validCards: Card[]
+  invalidCount: number
+  expiredCount: number
+  luhnCount: number
+  formatCount: number
+}
+
+const cleanCardsList = (text: string): CleanResult => {
+  const lines = text.split('\n')
+  const validCards: Card[] = []
+  let invalidCount = 0
+  let expiredCount = 0
+  let luhnCount = 0
+  let formatCount = 0
+  
+  const cardReg1 = /(\d{13,19})\s*[|/]\s*(\d{1,2})\s*[|/]\s*(\d{2,4})\s*[|/]\s*(\d{3,4})/
+  const cardReg2 = /(\d{13,19})\s+(\d{1,2})\s+(\d{2,4})\s+(\d{3,4})/
+  
+  const cleanedLines: string[] = []
+  
+  for (let line of lines) {
+    const trimmedLine = line.trim()
+    if (!trimmedLine) continue
+    
+    let match = trimmedLine.replace(/\s+/g, ' ').match(cardReg1)
+    if (!match) {
+      match = trimmedLine.replace(/\s+/g, ' ').match(cardReg2)
+    }
+    
+    if (match) {
+      const cc = match[1]
+      const mm = match[2].padStart(2, '0')
+      const yyRaw = match[3]
+      const yy = yyRaw.slice(-2)
+      const cvv = match[4]
+      
+      const isLuhnValid = validateLuhn(cc)
+      const isExpValid = validateExpiry(mm, yyRaw)
+      
+      if (!isLuhnValid) {
+        luhnCount++
+        invalidCount++
+      } else if (!isExpValid) {
+        expiredCount++
+        invalidCount++
+      } else {
+        const cardObj = {
+          cc,
+          mm,
+          yy,
+          formatted: `${cc}|${mm}|${yyRaw}|${cvv}`
+        }
+        validCards.push({
+          ...cardObj,
+          cvv
+        })
+        cleanedLines.push(`${cc}|${mm}|${yyRaw}|${cvv}`)
+      }
+    } else {
+      formatCount++
+      invalidCount++
+    }
+  }
+  
+  return {
+    cleanedText: cleanedLines.join('\n'),
+    validCards,
+    invalidCount,
+    expiredCount,
+    luhnCount,
+    formatCount
+  }
+}
+
 const Logo = ({ size = 'md', className = '' }: { size?: 'sm' | 'md' | 'lg', className?: string }) => {
   const textSvgStyles = {
     sm: 'h-[16px] w-[61px]',
@@ -1090,6 +1210,47 @@ export default function App() {
     runChecker(part.content)
   }
 
+  const handleCleanInputCards = () => {
+    let rawText = ''
+    if (uploadedFileContent) {
+      rawText = uploadedFileContent
+    } else {
+      rawText = cardInput.trim()
+    }
+    
+    if (!rawText) {
+      showToast("Chưa nhập thẻ nào để dọn dẹp!", "err")
+      return
+    }
+    
+    const cleanRes = cleanCardsList(rawText)
+    
+    if (cleanRes.invalidCount === 0) {
+      showToast("Tất cả thẻ đều hợp lệ!", "ok")
+      // Vẫn định dạng lại cho chuẩn
+      if (uploadedFileContent) {
+        setUploadedFileContent(cleanRes.cleanedText)
+      } else {
+        setCardInput(cleanRes.cleanedText)
+      }
+      return
+    }
+    
+    const parts = []
+    if (cleanRes.formatCount > 0) parts.push(`${cleanRes.formatCount} thẻ thiếu trường/sai định dạng`)
+    if (cleanRes.expiredCount > 0) parts.push(`${cleanRes.expiredCount} thẻ hết hạn/sai hạn`)
+    if (cleanRes.luhnCount > 0) parts.push(`${cleanRes.luhnCount} thẻ sai Luhn`)
+    const detailsStr = parts.join(', ')
+    
+    showToast(`Đã dọn dẹp! Loại bỏ ${cleanRes.invalidCount} thẻ lỗi: ${detailsStr}`, 'err')
+    
+    if (uploadedFileContent) {
+      setUploadedFileContent(cleanRes.cleanedText)
+    } else {
+      setCardInput(cleanRes.cleanedText)
+    }
+  }
+
   const runChecker = async (overrideContent?: string) => {
     if (isRunning) return
     
@@ -1108,6 +1269,35 @@ export default function App() {
     if (!rawText) {
       showToast("Input buffer empty", "err")
       return
+    }
+
+    // Quét và tự động loại bỏ các thẻ sai hạn, hết hạn, sai Luhn, thiếu trường
+    const cleanRes = cleanCardsList(rawText)
+    const cleanedText = cleanRes.cleanedText
+    
+    if (cleanRes.invalidCount > 0) {
+      const parts = []
+      if (cleanRes.formatCount > 0) parts.push(`${cleanRes.formatCount} thẻ thiếu trường/sai định dạng`)
+      if (cleanRes.expiredCount > 0) parts.push(`${cleanRes.expiredCount} thẻ hết hạn/sai hạn`)
+      if (cleanRes.luhnCount > 0) parts.push(`${cleanRes.luhnCount} thẻ sai Luhn`)
+      const detailsStr = parts.join(', ')
+      showToast(`Đã tự động loại bỏ ${cleanRes.invalidCount} thẻ lỗi: ${detailsStr}`, 'err')
+    }
+    
+    if (!cleanedText.trim()) {
+      showToast("Không tìm thấy thẻ hợp lệ nào sau khi quét lọc!", "err")
+      return
+    }
+    
+    rawText = cleanedText
+    
+    // Cập nhật lại các input state
+    if (overrideContent !== undefined) {
+      setCardInput(cleanedText)
+    } else if (uploadedFileContent) {
+      setUploadedFileContent(cleanedText)
+    } else {
+      setCardInput(cleanedText)
     }
 
     const cards = parseCardsString(rawText)
@@ -1823,12 +2013,21 @@ export default function App() {
 
                 <div className="flex gap-2">
                   {!isRunning ? (
-                    <button 
-                      onClick={() => runChecker()}
-                      className="bg-white hover:bg-slate-250 text-slate-950 font-tech text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all duration-300 hover:shadow-[0_0_20px_rgba(255,255,255,0.12)] active:scale-[0.98]"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" /> RUN CHECKER
-                    </button>
+                    <>
+                      <button 
+                        onClick={() => runChecker()}
+                        className="bg-white hover:bg-slate-250 text-slate-950 font-tech text-xs font-bold py-3 rounded-xl flex-[2] flex items-center justify-center gap-1.5 transition-all duration-300 hover:shadow-[0_0_20px_rgba(255,255,255,0.12)] active:scale-[0.98]"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" /> RUN CHECKER
+                      </button>
+                      <button 
+                        onClick={() => handleCleanInputCards()}
+                        className="bg-slate-900 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-slate-300 font-tech text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-200"
+                        title="Quét và lọc thẻ sai hạn, hết hạn, sai Luhn, thiếu trường"
+                      >
+                        <Scissors className="w-3.5 h-3.5 text-cyan-400" /> DỌN THẺ
+                      </button>
+                    </>
                   ) : (
                     <button 
                       onClick={stopChecking}
