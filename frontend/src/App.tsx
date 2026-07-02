@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { 
   Play, Square, Trash2, Plus, X, UploadCloud, Database, Scissors, 
   LogOut, Lock, User, Terminal, Server, ShieldCheck, CheckCircle2, AlertCircle,
@@ -94,6 +94,412 @@ const validateExpiry = (mmStr: string, yyStr: string): boolean => {
     return false
   }
   return true
+}
+
+const TaskTimeoutCountdown = ({ updatedAt }: { updatedAt: string | null }) => {
+  const [timeLeft, setTimeLeft] = useState<string>('')
+
+  useEffect(() => {
+    if (!updatedAt) {
+      setTimeLeft('')
+      return
+    }
+
+    const calculateTime = () => {
+      const updatedTime = new Date(updatedAt).getTime()
+      const expireTime = updatedTime + 24 * 60 * 60 * 1000
+      const now = new Date().getTime()
+      const diff = expireTime - now
+
+      if (diff <= 0) {
+        setTimeLeft('Expired (Deleting...)')
+        return
+      }
+
+      const hours = Math.floor(diff / (1000 * 60 * 60))
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+
+      setTimeLeft(`${hours}h ${minutes}m ${seconds}s`)
+    }
+
+    calculateTime()
+    const interval = setInterval(calculateTime, 1000)
+    return () => clearInterval(interval)
+  }, [updatedAt])
+
+  if (!timeLeft) return null
+
+  return (
+    <span className="text-[9px] text-amber-400 border border-amber-500/20 bg-amber-500/5 px-2 py-1 rounded-lg font-tech tracking-wider animate-pulse flex items-center gap-1 shrink-0 select-none">
+      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+      AUTO-DELETE IN: {timeLeft}
+    </span>
+  )
+}
+
+const CardTimeoutCountdown = ({ createdAt, userId }: { createdAt: string, userId: number }) => {
+  const [timeLeft, setTimeLeft] = useState<string>('')
+
+  useEffect(() => {
+    if (userId === 0) {
+      setTimeLeft('PERMANENT')
+      return
+    }
+
+    const calculateTime = () => {
+      const createdTime = new Date(createdAt).getTime()
+      const expireTime = createdTime + 24 * 60 * 60 * 1000
+      const now = new Date().getTime()
+      const diff = expireTime - now
+
+      if (diff <= 0) {
+        setTimeLeft('Expired')
+        return
+      }
+
+      const hours = Math.floor(diff / (1000 * 60 * 60))
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+
+      setTimeLeft(`${hours}h ${minutes}m ${seconds}s`)
+    }
+
+    calculateTime()
+    const interval = setInterval(calculateTime, 1000)
+    return () => clearInterval(interval)
+  }, [createdAt, userId])
+
+  if (!timeLeft) return null
+
+  if (userId === 0) {
+    return (
+      <span className="text-[8px] text-purple-400 border border-purple-500/20 bg-purple-500/5 px-1.5 py-0.5 rounded font-mono tracking-wider">
+        PERMANENT
+      </span>
+    )
+  }
+
+  return (
+    <span className="text-[8px] text-amber-400 border border-amber-500/20 bg-amber-500/5 px-1.5 py-0.5 rounded font-mono tracking-wider animate-pulse">
+      DELETE IN: {timeLeft}
+    </span>
+  )
+}
+
+const SavedCardsTab = ({ 
+  cards, 
+  loading, 
+  isAdmin, 
+  onRefresh 
+}: { 
+  cards: any[], 
+  loading: boolean, 
+  isAdmin: boolean, 
+  onRefresh: () => void 
+}) => {
+  const [expandedUsers, setExpandedUsers] = useState<Record<string, boolean>>({})
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, Record<string, boolean>>>({})
+  const [copiedId, setCopiedId] = useState<number | null>(null)
+
+  const handleCopy = (text: string, id: number) => {
+    navigator.clipboard.writeText(text)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 1500)
+  }
+
+  const handleDeleteCard = async (cardId: number) => {
+    if (!confirm("Are you sure you want to delete this card from the database?")) return
+    try {
+      const res = await fetch(`/api/saved_cards/delete?id=${cardId}`, {
+        method: "POST"
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.success) {
+          onRefresh()
+        }
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const toggleUser = (userKey: string) => {
+    setExpandedUsers(prev => ({
+      ...prev,
+      [userKey]: !prev[userKey]
+    }))
+  }
+
+  const toggleCategory = (userKey: string, category: string) => {
+    setExpandedCategories(prev => ({
+      ...prev,
+      [userKey]: {
+        ...prev[userKey],
+        [category]: !prev[userKey]?.[category]
+      }
+    }))
+  }
+
+  // Group cards by user
+  const groupedUsers = useMemo(() => {
+    return cards.reduce((acc: Record<string, any>, card: any) => {
+      const userKey = card.username ? `@${card.username}` : (card.first_name || `User ID: ${card.user_id}`)
+      if (!acc[userKey]) {
+        acc[userKey] = {
+          username: card.username,
+          first_name: card.first_name,
+          user_id: card.user_id,
+          charged: [],
+          live: []
+        }
+      }
+      if (card.status === 'CHARGED') {
+        acc[userKey].charged.push(card)
+      } else if (card.status === 'LIVE') {
+        acc[userKey].live.push(card)
+      }
+      return acc
+    }, {})
+  }, [cards])
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 font-tech">
+        <div className="w-8 h-8 border-2 border-t-transparent border-cyan-400 rounded-full animate-spin mb-4" />
+        <div className="text-slate-500 text-xs tracking-wider animate-pulse">// LOADING SAVED DATABASE POOLS...</div>
+      </div>
+    )
+  }
+
+  if (cards.length === 0) {
+    return (
+      <div className="glass-panel rounded-2xl p-10 flex flex-col items-center justify-center font-tech">
+        <div className="text-slate-500 text-xs italic mb-4">// NO SAVED CARDS DETECTED IN DATABASE</div>
+        <button 
+          onClick={onRefresh}
+          className="py-2 px-4 bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl hover:border-slate-700 active:scale-[0.98] transition-all"
+        >
+          REFRESH DATABASE
+        </button>
+      </div>
+    )
+  }
+
+  const renderCardList = (list: any[]) => {
+    return (
+      <div className="flex flex-col gap-2 font-mono text-xs">
+        {list.map((c) => (
+          <div 
+            key={c.id} 
+            className="flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-950/60 border border-slate-900 p-3 rounded-xl hover:border-slate-800 transition-colors group"
+          >
+            <div className="flex flex-col gap-1 w-full md:w-auto">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-200 font-bold select-all">{c.card}</span>
+                <button 
+                  onClick={() => handleCopy(c.card, c.id)}
+                  className="text-slate-500 hover:text-cyan-400 p-1 hover:bg-slate-900 rounded-lg transition-colors"
+                  title="Copy card info"
+                >
+                  {copiedId === c.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              <div className="text-[10px] text-slate-500 flex flex-wrap gap-x-3 gap-y-1">
+                {c.msg && <span className="text-slate-400">Response: <span className="text-slate-300">{c.msg}</span></span>}
+                {c.site && <span className="text-cyan-600">Site: <span className="text-cyan-500/80">{c.site}</span></span>}
+                <span className="text-slate-600">{new Date(c.created_at).toLocaleString()}</span>
+              </div>
+            </div>
+            <div className="mt-2 md:mt-0 flex items-center gap-2 shrink-0">
+              <CardTimeoutCountdown createdAt={c.created_at} userId={c.user_id} />
+              <span className={`px-2 py-0.5 border text-[9px] font-bold rounded-lg ${
+                c.status === 'CHARGED' 
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' 
+                  : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-400'
+              }`}>
+                {c.status}
+              </span>
+              <button 
+                onClick={() => handleDeleteCard(c.id)}
+                className="text-slate-500 hover:text-red-400 p-1 hover:bg-slate-955 border border-transparent hover:border-slate-900 rounded-md transition-colors"
+                title="Delete card from database"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  // If regular user, just show their own categories directly (without grouping by user)
+  if (!isAdmin) {
+    const userKeys = Object.keys(groupedUsers)
+    const myData = userKeys.length > 0 ? groupedUsers[userKeys[0]] : { charged: [], live: [] }
+
+    return (
+      <div className="flex flex-col gap-6 animate-slide-up font-tech">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[10.5px] font-bold text-white tracking-wider flex items-center gap-2">
+            <Lock className="w-4 h-4 text-cyan-400" /> SAVED CARDS DATABASE (24H RETENTION)
+          </div>
+          <button 
+            onClick={onRefresh}
+            className="py-1.5 px-3 bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 text-[10px] rounded-lg transition-all"
+          >
+            REFRESH
+          </button>
+        </div>
+
+        {/* My categories */}
+        <div className="flex flex-col gap-4">
+          {/* Charged category */}
+          <div className="glass-panel rounded-2xl p-4 flex flex-col">
+            <button 
+              onClick={() => toggleCategory("me", "charged")}
+              className="flex justify-between items-center text-left"
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[11px] font-bold text-white uppercase tracking-wider">CHARGED CARDS ({myData.charged.length})</span>
+              </div>
+              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-300 ${expandedCategories["me"]?.charged ? 'rotate-180' : ''}`} />
+            </button>
+            <div className={`transition-all duration-300 overflow-hidden ${expandedCategories["me"]?.charged ? 'max-h-[2000px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
+              {myData.charged.length === 0 ? (
+                <div className="text-slate-600 text-xs italic py-2 font-mono">// No charged cards saved</div>
+              ) : (
+                renderCardList(myData.charged)
+              )}
+            </div>
+          </div>
+
+          {/* Live category */}
+          <div className="glass-panel rounded-2xl p-4 flex flex-col">
+            <button 
+              onClick={() => toggleCategory("me", "live")}
+              className="flex justify-between items-center text-left"
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                <span className="text-[11px] font-bold text-white uppercase tracking-wider">LIVE CARDS ({myData.live.length})</span>
+              </div>
+              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-300 ${expandedCategories["me"]?.live ? 'rotate-180' : ''}`} />
+            </button>
+            <div className={`transition-all duration-300 overflow-hidden ${expandedCategories["me"]?.live ? 'max-h-[2000px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
+              {myData.live.length === 0 ? (
+                <div className="text-slate-600 text-xs italic py-2 font-mono">// No live cards saved</div>
+              ) : (
+                renderCardList(myData.live)
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Admin view (grouped by user)
+  return (
+    <div className="flex flex-col gap-6 animate-slide-up font-tech">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10.5px] font-bold text-white tracking-wider flex items-center gap-2">
+          <Lock className="w-4 h-4 text-purple-400" /> ADMIN DATABASE PANEL // SAVED CARDS
+        </div>
+        <button 
+          onClick={onRefresh}
+          className="py-1.5 px-3 bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 text-[10px] rounded-lg transition-all"
+        >
+          REFRESH DB
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-4">
+        {Object.entries(groupedUsers).map(([userKey, userGroup]: [string, any]) => {
+          const totalCount = userGroup.charged.length + userGroup.live.length
+          return (
+            <div 
+              key={userKey} 
+              className="glass-panel rounded-2xl p-5 hover:border-slate-800/80 transition-all duration-300 flex flex-col"
+            >
+              {/* User Accordion Header */}
+              <button 
+                onClick={() => toggleUser(userKey)}
+                className="flex items-center justify-between text-left group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0">
+                    <User className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-white group-hover:text-purple-400 transition-colors select-all">{userKey}</div>
+                    <div className="text-[9px] text-slate-500 uppercase tracking-wider font-mono">
+                      Telegram UserID: {userGroup.user_id} // Saved Cards: {totalCount}
+                    </div>
+                  </div>
+                </div>
+                <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${expandedUsers[userKey] ? 'rotate-180 text-purple-400' : ''}`} />
+              </button>
+
+              {/* User Accordion Content */}
+              <div 
+                className={`transition-all duration-300 overflow-hidden ${
+                  expandedUsers[userKey] ? 'max-h-[5000px] opacity-100 mt-5 pt-5 border-t border-slate-900/60' : 'max-h-0 opacity-0'
+                }`}
+              >
+                <div className="flex flex-col gap-4">
+                  {/* Category: Charged */}
+                  <div className="flex flex-col">
+                    <button 
+                      onClick={() => toggleCategory(userKey, "charged")}
+                      className="flex justify-between items-center text-left py-2 border-b border-slate-950"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-[10px] font-bold text-slate-300 tracking-wider">CHARGED ({userGroup.charged.length})</span>
+                      </div>
+                      <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-300 ${expandedCategories[userKey]?.charged ? 'rotate-180' : ''}`} />
+                    </button>
+                    <div className={`transition-all duration-300 overflow-hidden ${expandedCategories[userKey]?.charged ? 'max-h-[2000px] opacity-100 mt-3' : 'max-h-0 opacity-0'}`}>
+                      {userGroup.charged.length === 0 ? (
+                        <div className="text-slate-600 text-xs italic py-2 font-mono">// No charged cards saved</div>
+                      ) : (
+                        renderCardList(userGroup.charged)
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Category: Live */}
+                  <div className="flex flex-col">
+                    <button 
+                      onClick={() => toggleCategory(userKey, "live")}
+                      className="flex justify-between items-center text-left py-2 border-b border-slate-955"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                        <span className="text-[10px] font-bold text-slate-300 tracking-wider">LIVE ({userGroup.live.length})</span>
+                      </div>
+                      <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform duration-300 ${expandedCategories[userKey]?.live ? 'rotate-180' : ''}`} />
+                    </button>
+                    <div className={`transition-all duration-300 overflow-hidden ${expandedCategories[userKey]?.live ? 'max-h-[2000px] opacity-100 mt-3' : 'max-h-0 opacity-0'}`}>
+                      {userGroup.live.length === 0 ? (
+                        <div className="text-slate-600 text-xs italic py-2 font-mono">// No live cards saved</div>
+                      ) : (
+                        renderCardList(userGroup.live)
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 interface CleanResult {
@@ -471,7 +877,7 @@ export default function App() {
   }, [mobileMode])
 
   // Navigation & Auth
-  const [tab, setTab] = useState<'checker' | 'admin' | 'login'>(() => {
+  const [tab, setTab] = useState<'checker' | 'admin' | 'login' | 'saved_cards'>(() => {
     if (typeof window !== 'undefined') {
       if (window.location.pathname === '/vanlinh') return 'admin'
       if (window.location.pathname === '/login') return 'login'
@@ -480,6 +886,33 @@ export default function App() {
   })
   const [user, setUser] = useState<string | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+
+  const [currentTaskUpdatedAt, setCurrentTaskUpdatedAt] = useState<string | null>(null)
+  const [savedCards, setSavedCards] = useState<any[]>([])
+  const [loadingSavedCards, setLoadingSavedCards] = useState(false)
+
+  const fetchSavedCards = async () => {
+    setLoadingSavedCards(true)
+    try {
+      const res = await fetch('/api/saved_cards')
+      if (res.ok) {
+        const data = await res.json()
+        if (data.success) {
+          setSavedCards(data.cards || [])
+        }
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoadingSavedCards(false)
+    }
+  }
+
+  useEffect(() => {
+    if (tab === 'saved_cards') {
+      fetchSavedCards()
+    }
+  }, [tab])
 
   // Login form
   const [adminUsername, setAdminUsername] = useState('')
@@ -643,6 +1076,7 @@ export default function App() {
               pollTask(task.id)
             } else {
               setCurrentTaskId(task.id)
+              setCurrentTaskUpdatedAt(task.updated_at)
               setProgressStatus(task.status === 'completed' ? 'DONE' : task.status === 'cancelled' ? 'TERMINATED' : 'FAILED')
             }
           }
@@ -954,11 +1388,33 @@ export default function App() {
             setIsRunning(false)
             showToast('Checking completed successfully')
             ws.close()
+            setTimeout(async () => {
+              try {
+                const res = await fetch('/api/tasks/active')
+                if (res.ok) {
+                  const data = await res.json()
+                  if (data.active && data.task) {
+                    setCurrentTaskUpdatedAt(data.task.updated_at)
+                  }
+                }
+              } catch (e) {}
+            }, 1000)
           } else if (status === 'cancelled') {
             setProgressStatus('TERMINATED')
             setIsRunning(false)
             showToast('Checking stopped manually', 'err')
             ws.close()
+            setTimeout(async () => {
+              try {
+                const res = await fetch('/api/tasks/active')
+                if (res.ok) {
+                  const data = await res.json()
+                  if (data.active && data.task) {
+                    setCurrentTaskUpdatedAt(data.task.updated_at)
+                  }
+                }
+              } catch (e) {}
+            }, 1000)
           } else if (status === 'failed') {
             setProgressStatus('FAILED')
             setIsRunning(false)
@@ -1730,6 +2186,23 @@ export default function App() {
                   <span>DATABASE POOLS</span>
                 </button>
               )}
+
+              {/* Tab: SAVED CARDS */}
+              <button 
+                onClick={() => { 
+                  setTab('saved_cards'); 
+                  setSidebarOpen(false);
+                }} 
+                className={`w-full px-4 py-3.5 rounded-xl font-tech text-[10px] font-bold transition-all duration-300 flex items-center gap-3 border relative overflow-hidden group ${
+                  tab === 'saved_cards' 
+                    ? 'bg-white/10 border-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.04)]' 
+                    : 'bg-transparent border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/40 hover:border-slate-900/40'
+                }`}
+              >
+                {tab === 'saved_cards' && <span className="absolute left-0 top-3 bottom-3 w-1 bg-white rounded-r-md" />}
+                <Lock className="w-4 h-4 text-slate-200 group-hover:scale-110 transition-transform" />
+                <span>SAVED CARDS DB</span>
+              </button>
             </nav>
 
             {/* Sidebar Footer: Real-time Stats & User details */}
@@ -2448,14 +2921,17 @@ export default function App() {
                 </div>
                 <div className="flex gap-2">
                   {currentTaskId && !isRunning && (
-                    <a 
-                      href={`/api/tasks/download?id=${currentTaskId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="py-2 px-3 bg-cyan-950/20 hover:bg-cyan-500/10 border border-cyan-950/30 hover:border-cyan-500/30 text-cyan-400 rounded-lg font-tech text-[8.5px] font-bold flex items-center gap-1.5 transition-all no-underline"
-                    >
-                      <Download className="w-3.5 h-3.5" /> DOWNLOAD REPORT (24H)
-                    </a>
+                    <div className="flex items-center gap-2">
+                      <TaskTimeoutCountdown updatedAt={currentTaskUpdatedAt} />
+                      <a 
+                        href={`/api/tasks/download?id=${currentTaskId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="py-2 px-3 bg-cyan-950/20 hover:bg-cyan-500/10 border border-cyan-950/30 hover:border-cyan-500/30 text-cyan-400 rounded-lg font-tech text-[8.5px] font-bold flex items-center gap-1.5 transition-all no-underline"
+                      >
+                        <Download className="w-3.5 h-3.5" /> DOWNLOAD REPORT (24H)
+                      </a>
+                    </div>
                   )}
                   <button 
                     onClick={clearResults}
@@ -2874,6 +3350,16 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Tab: SAVED CARDS DB */}
+        {tab === 'saved_cards' && (
+          <SavedCardsTab 
+            cards={savedCards} 
+            loading={loadingSavedCards} 
+            isAdmin={isAdmin} 
+            onRefresh={fetchSavedCards} 
+          />
         )}
 
         {/* Footnote */}

