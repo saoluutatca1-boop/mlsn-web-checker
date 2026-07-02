@@ -2810,17 +2810,29 @@ func startResultCleanupTimer() {
 		ticker := time.NewTicker(10 * time.Minute)
 		for range ticker.C {
 			files, err := os.ReadDir("data/results")
-			if err != nil {
-				continue
-			}
-			now := time.Now()
-			for _, f := range files {
-				info, err := f.Info()
-				if err != nil {
-					continue
+			if err == nil {
+				now := time.Now()
+				for _, f := range files {
+					info, err := f.Info()
+					if err != nil {
+						continue
+					}
+					if now.Sub(info.ModTime()) > 24*time.Hour {
+						_ = os.Remove(filepath.Join("data/results", f.Name()))
+					}
 				}
-				if now.Sub(info.ModTime()) > 24*time.Hour {
-					_ = os.Remove(filepath.Join("data/results", f.Name()))
+			}
+
+			if db != nil {
+				_, errDb := db.Exec(`
+					UPDATE check_tasks 
+					SET results = '[]'::jsonb, result_file_path = NULL 
+					WHERE status != 'running' 
+					  AND updated_at < CURRENT_TIMESTAMP - INTERVAL '24 hours'
+					  AND (results != '[]'::jsonb OR result_file_path IS NOT NULL)
+				`)
+				if errDb != nil {
+					log.Printf("Failed to clean up expired tasks in DB: %v", errDb)
 				}
 			}
 		}
@@ -3264,11 +3276,17 @@ func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []s
 	}
 
 	resultsJSON, _ := json.Marshal(validFinalResults)
+	filePath, errGenResult := generateResultFile(taskID, len(validFinalResults), validFinalResults)
+	var dbFilePath sql.NullString
+	if errGenResult == nil {
+		dbFilePath.String = filePath
+		dbFilePath.Valid = true
+	}
 	_, _ = db.Exec(`
 		UPDATE check_tasks 
-		SET status = $1, checked_cards = $2, results = $3, updated_at = CURRENT_TIMESTAMP 
-		WHERE id = $4
-	`, status, len(validFinalResults), string(resultsJSON), taskID)
+		SET status = $1, checked_cards = $2, results = $3, result_file_path = $4, updated_at = CURRENT_TIMESTAMP 
+		WHERE id = $5
+	`, status, len(validFinalResults), string(resultsJSON), dbFilePath, taskID)
 
 	broadcastTaskUpdate(userID, map[string]interface{}{
 		"type":          "task_status",
@@ -3324,15 +3342,15 @@ func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []s
 		}
 	}
 
-	// Clean up local files
-	for _, fPath := range generatedFiles {
-		_ = os.Remove(fPath)
-	}
+	// Clean up local files - Skip immediately to retain for 24h
+	// for _, fPath := range generatedFiles {
+	// 	_ = os.Remove(fPath)
+	// }
 
-	// Clean up database results and files to keep it lightweight
+	// Update telegram_sent status in database without clearing results
 	_, _ = db.Exec(`
 		UPDATE check_tasks 
-		SET results = '[]'::jsonb, result_file_path = NULL, telegram_sent = $1, updated_at = CURRENT_TIMESTAMP
+		SET telegram_sent = $1, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $2
 	`, telegramSentOk || !hasFiles, taskID)
 }
