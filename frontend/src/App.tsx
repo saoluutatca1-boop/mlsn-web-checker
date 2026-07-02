@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { 
   Play, Square, Trash2, Plus, X, UploadCloud, Database, Scissors, 
   LogOut, Lock, User, Terminal, Server, ShieldCheck, CheckCircle2, AlertCircle,
-  Menu, Download, Copy
+  Menu, Download, Copy, ChevronDown, Check
 } from 'lucide-react'
 import { PixelAvatar, AvatarCustomizer, AVATAR_TEMPLATES } from './PixelAvatars'
 // Types based on the Go backend API
@@ -494,6 +494,8 @@ export default function App() {
   const [cardInput, setCardInput] = useState('')
   const [mode, setMode] = useState<'sac' | 'msac'>('sac')
   const [userProxies, setUserProxies] = useState<string[]>([])
+  const [gateway, setGateway] = useState<'shopify' | 'payflow'>('shopify')
+  const [isGatewayDropdownOpen, setIsGatewayDropdownOpen] = useState(false)
   
   // Checking State
   const [isRunning, setIsRunning] = useState(false)
@@ -535,6 +537,17 @@ export default function App() {
       loadCustomAvatar(user)
     }
   }, [user])
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      const dropdown = document.getElementById('gateway-selector')
+      if (dropdown && !dropdown.contains(e.target as Node)) {
+        setIsGatewayDropdownOpen(false)
+      }
+    }
+    document.addEventListener('click', handleOutsideClick)
+    return () => document.removeEventListener('click', handleOutsideClick)
+  }, [])
 
   useEffect(() => {
     if (!isRunning) {
@@ -1048,7 +1061,7 @@ export default function App() {
   const handleTestProxies = async () => {
     if (isTestingProxies) return
     setIsTestingProxies(true)
-    showToast("Starting proxy testing... / Bắt đầu test danh sách proxy...", "ok")
+    showToast("Starting proxy testing...", "ok")
     try {
       const res = await fetch("/api/proxies/test", {
         method: "POST"
@@ -1219,15 +1232,15 @@ export default function App() {
     }
     
     if (!rawText) {
-      showToast("Chưa nhập thẻ nào để dọn dẹp!", "err")
+      showToast("No cards input to clean!", "err")
       return
     }
     
     const cleanRes = cleanCardsList(rawText)
     
     if (cleanRes.invalidCount === 0) {
-      showToast("Tất cả thẻ đều hợp lệ!", "ok")
-      // Vẫn định dạng lại cho chuẩn
+      showToast("All cards are valid!", "ok")
+      // Reformat
       if (uploadedFileContent) {
         setUploadedFileContent(cleanRes.cleanedText)
       } else {
@@ -1237,12 +1250,12 @@ export default function App() {
     }
     
     const parts = []
-    if (cleanRes.formatCount > 0) parts.push(`${cleanRes.formatCount} thẻ thiếu trường/sai định dạng`)
-    if (cleanRes.expiredCount > 0) parts.push(`${cleanRes.expiredCount} thẻ hết hạn/sai hạn`)
-    if (cleanRes.luhnCount > 0) parts.push(`${cleanRes.luhnCount} thẻ sai Luhn`)
+    if (cleanRes.formatCount > 0) parts.push(`${cleanRes.formatCount} invalid format`)
+    if (cleanRes.expiredCount > 0) parts.push(`${cleanRes.expiredCount} expired/invalid date`)
+    if (cleanRes.luhnCount > 0) parts.push(`${cleanRes.luhnCount} invalid Luhn`)
     const detailsStr = parts.join(', ')
     
-    showToast(`Đã dọn dẹp! Loại bỏ ${cleanRes.invalidCount} thẻ lỗi: ${detailsStr}`, 'err')
+    showToast(`Cleaned! Removed ${cleanRes.invalidCount} invalid cards: ${detailsStr}`, 'err')
     
     if (uploadedFileContent) {
       setUploadedFileContent(cleanRes.cleanedText)
@@ -1271,27 +1284,27 @@ export default function App() {
       return
     }
 
-    // Quét và tự động loại bỏ các thẻ sai hạn, hết hạn, sai Luhn, thiếu trường
+    // Scan and automatically remove invalid, expired, or failed Luhn cards
     const cleanRes = cleanCardsList(rawText)
     const cleanedText = cleanRes.cleanedText
     
     if (cleanRes.invalidCount > 0) {
       const parts = []
-      if (cleanRes.formatCount > 0) parts.push(`${cleanRes.formatCount} thẻ thiếu trường/sai định dạng`)
-      if (cleanRes.expiredCount > 0) parts.push(`${cleanRes.expiredCount} thẻ hết hạn/sai hạn`)
-      if (cleanRes.luhnCount > 0) parts.push(`${cleanRes.luhnCount} thẻ sai Luhn`)
+      if (cleanRes.formatCount > 0) parts.push(`${cleanRes.formatCount} invalid format`)
+      if (cleanRes.expiredCount > 0) parts.push(`${cleanRes.expiredCount} expired/invalid date`)
+      if (cleanRes.luhnCount > 0) parts.push(`${cleanRes.luhnCount} invalid Luhn`)
       const detailsStr = parts.join(', ')
-      showToast(`Đã tự động loại bỏ ${cleanRes.invalidCount} thẻ lỗi: ${detailsStr}`, 'err')
+      showToast(`Automatically removed ${cleanRes.invalidCount} invalid cards: ${detailsStr}`, 'err')
     }
     
     if (!cleanedText.trim()) {
-      showToast("Không tìm thấy thẻ hợp lệ nào sau khi quét lọc!", "err")
+      showToast("No valid cards found after cleaning filter!", "err")
       return
     }
     
     rawText = cleanedText
     
-    // Cập nhật lại các input state
+    // Update input states
     if (overrideContent !== undefined) {
       setCardInput(cleanedText)
     } else if (uploadedFileContent) {
@@ -1323,7 +1336,8 @@ export default function App() {
         body: JSON.stringify({
           cards: rawText,
           concurrency: concurrency,
-          proxies: userProxies
+          proxies: userProxies,
+          gateway: gateway
         })
       })
 
@@ -1506,7 +1520,7 @@ export default function App() {
           method: 'POST'
         })
         if (res.ok) {
-          showToast("Task history deleted from server / Đã xóa lịch sử check thẻ.")
+          showToast("Task history deleted from server.")
           setCurrentTaskId(null)
           taskIdRef.current = null
         }
@@ -1551,12 +1565,12 @@ export default function App() {
 
     const cardsText = filtered.map(r => r.card).join('\n')
     if (!cardsText) {
-      showToast("No cards to copy for this status / Không có thẻ nào để copy.", "err")
+      showToast("No cards to copy for this status.", "err")
       return
     }
 
     navigator.clipboard.writeText(cardsText).then(() => {
-      showToast(`Copied ${filtered.length} cards to clipboard! / Đã copy ${filtered.length} thẻ.`)
+      showToast(`Copied ${filtered.length} cards to clipboard!`)
     }).catch(err => {
       console.error('Failed to copy cards:', err)
       showToast("Failed to copy cards", "err")
@@ -1572,6 +1586,8 @@ export default function App() {
     if (activeFilter === 'ERR') return ['ERROR', 'TIMEOUT', 'EXCEPTION'].includes(r.status)
     return r.status === activeFilter
   }) : results
+
+  const hasProxy = userProxies.length > 0 || statsData.proxies_count > 0
 
   return (
     <div className="min-h-screen bg-transparent text-slate-200 flex flex-col md:flex-row selection:bg-cyan-500/30 selection:text-cyan-300 relative overflow-x-hidden">
@@ -1735,7 +1751,7 @@ export default function App() {
                   <div 
                     onClick={() => setIsCustomizerOpen(true)}
                     className="cursor-pointer transition-all hover:scale-105 active:scale-95 group relative select-none shrink-0"
-                    title="Click to customize avatar / Bấm để thiết kế avatar"
+                    title="Click to customize avatar"
                   >
                     <PixelAvatar 
                       username={user || "guest"} 
@@ -1958,50 +1974,124 @@ export default function App() {
                   <span>[01] CARD ENGINE</span>
                 </div>
                 
-                <div className="flex gap-2.5 items-center">
-                  <div className="grid grid-cols-2 bg-slate-950 border border-slate-900 p-1 rounded-xl text-[9px] font-tech font-bold flex-1 relative overflow-hidden select-none">
-                    <div 
-                      className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-lg bg-white/10 border border-white/20 transition-all duration-300 ease-out-back ${
-                        mode === 'sac' ? 'translate-x-0' : 'translate-x-full'
-                      }`} 
-                    />
+                {gateway === 'shopify' && (
+                  <div className="flex gap-2.5 items-center select-none">
+                    <div className="grid grid-cols-2 bg-slate-950 border border-slate-900 p-1 rounded-xl text-[9px] font-tech font-bold flex-1 relative overflow-hidden">
+                      <div 
+                        className={`absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-lg bg-white/10 border border-white/20 transition-all duration-300 ease-out-back ${
+                          mode === 'sac' ? 'translate-x-0' : 'translate-x-full'
+                        }`} 
+                      />
+                      
+                      <button 
+                        onClick={() => setMode('sac')}
+                        className={`py-1.5 rounded-lg z-10 transition-all text-center cursor-pointer ${
+                          mode === 'sac' ? 'text-white' : 'text-slate-500 hover:text-slate-400'
+                        }`}
+                      >
+                        SAC SINGLE
+                      </button>
+                      <button 
+                        onClick={() => setMode('msac')}
+                        className={`py-1.5 rounded-lg z-10 transition-all text-center cursor-pointer ${
+                          mode === 'msac' ? 'text-white' : 'text-slate-500 hover:text-slate-400'
+                        }`}
+                      >
+                        MSAC MASS
+                      </button>
+                    </div>
                     
-                    <button 
-                      onClick={() => setMode('sac')}
-                      className={`py-1.5 rounded-lg z-10 transition-all text-center ${
-                        mode === 'sac' ? 'text-white' : 'text-slate-500 hover:text-slate-400'
-                      }`}
-                    >
-                      SAC SINGLE
-                    </button>
-                    <button 
-                      onClick={() => setMode('msac')}
-                      className={`py-1.5 rounded-lg z-10 transition-all text-center ${
-                        mode === 'msac' ? 'text-white' : 'text-slate-500 hover:text-slate-400'
-                      }`}
-                    >
-                      MSAC MASS
-                    </button>
+                    <div className="bg-slate-955/70 border border-slate-900 rounded-xl px-2.5 py-1.5 h-9 flex items-center justify-between gap-1.5 w-28 shrink-0 font-tech focus-within:border-white/25 transition-all">
+                      <span className="text-[9px] text-slate-500 tracking-tight uppercase font-bold">LIMIT</span>
+                      <input 
+                        type="number" 
+                        value={concurrency}
+                        onChange={(e) => setConcurrency(parseInt(e.target.value) || 1000)}
+                        min="1" 
+                        max="2000"
+                        className="bg-transparent border-none text-right outline-none text-white text-xs font-bold w-14"
+                      />
+                    </div>
                   </div>
-                  
-                  <div className="bg-slate-955/70 border border-slate-900 rounded-xl px-2.5 py-1.5 h-9 flex items-center justify-between gap-1.5 w-28 shrink-0 font-tech focus-within:border-white/25 transition-all">
-                    <span className="text-[9px] text-slate-500 tracking-tight uppercase font-bold">LIMIT</span>
-                    <input 
-                      type="number" 
-                      value={concurrency}
-                      onChange={(e) => setConcurrency(parseInt(e.target.value) || 1000)}
-                      min="1" 
-                      max="2000"
-                      className="bg-transparent border-none text-right outline-none text-white text-xs font-bold w-14"
-                    />
-                  </div>
+                )}
+
+                {/* Gateway Dropdown Selector */}
+                <div className="relative mb-2.5 font-tech select-none" id="gateway-selector">
+                  <span className="text-[9px] text-slate-505 uppercase tracking-wider block mb-1 font-bold">GATEWAY TARGET</span>
+                  <button
+                    type="button"
+                    disabled={isRunning}
+                    onClick={() => setIsGatewayDropdownOpen(!isGatewayDropdownOpen)}
+                    className="w-full bg-slate-955/70 border border-slate-900 rounded-xl px-3.5 py-2 flex items-center justify-between text-[10.5px] text-slate-200 hover:border-white/20 focus:border-cyan-500/40 transition-all outline-none disabled:opacity-50 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={`w-1.5 h-1.5 rounded-full ${gateway === 'payflow' ? 'bg-purple-400 animate-pulse' : 'bg-cyan-400 animate-pulse'}`} />
+                      <span className="font-bold tracking-wide">
+                        {gateway === 'shopify' ? 'SHOPIFY PAYMENTS (MASS)' : 'PAYFLOW V2 (SINGLE CHECK)'}
+                      </span>
+                    </div>
+                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-300 ${isGatewayDropdownOpen ? 'rotate-180 text-cyan-400' : ''}`} />
+                  </button>
+
+                  {/* Dropdown Menu */}
+                  {isGatewayDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-slate-950/95 border border-slate-800/80 rounded-xl overflow-hidden shadow-2xl z-20 backdrop-blur-xl animate-slide-up">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGateway('shopify')
+                          setIsGatewayDropdownOpen(false)
+                        }}
+                        className={`w-full text-left px-3.5 py-2.5 text-[10px] font-bold hover:bg-cyan-950/20 hover:text-cyan-400 flex items-center justify-between border-b border-slate-900/60 transition-colors cursor-pointer ${
+                          gateway === 'shopify' ? 'text-cyan-400 bg-cyan-950/10' : 'text-slate-400'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-1 h-1 rounded-full bg-cyan-400" />
+                          <span>SHOPIFY PAYMENTS (MASS)</span>
+                        </div>
+                        {gateway === 'shopify' && <Check className="w-3.5 h-3.5 text-cyan-400" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGateway('payflow')
+                          setIsGatewayDropdownOpen(false)
+                          setUploadedFileName('')
+                          setUploadedFileContent('')
+                          const cards = parseCardsString(cardInput)
+                          if (cards.length > 1) {
+                            setCardInput(cards[0].formatted)
+                            showToast("Payflow V2 only supports single check. Keeping first card.", "err")
+                          }
+                        }}
+                        className={`w-full text-left px-3.5 py-2.5 text-[10px] font-bold hover:bg-purple-955/20 hover:text-purple-400 flex items-center justify-between transition-colors cursor-pointer ${
+                          gateway === 'payflow' ? 'text-purple-400 bg-purple-955/10' : 'text-slate-400'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-1 h-1 rounded-full bg-purple-400" />
+                          <span>PAYFLOW V2 (SINGLE CHECK)</span>
+                        </div>
+                        {gateway === 'payflow' && <Check className="w-3.5 h-3.5 text-purple-400" />}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <textarea 
-                  placeholder="cc|mm|yy|cvv&#10;cc/mm/yy/cvv&#10;cc mm yy cvv&#10;&#10;One card per line"
+                  placeholder={gateway === 'payflow' ? "cc|mm|yy|cvv - Enter a single card (Proxy required)" : "cc|mm|yy|cvv\ncc/mm/yy/cvv\ncc mm yy cvv\n\nOne card per line"}
                   value={cardInput}
                   onChange={(e) => {
-                    setCardInput(e.target.value)
+                    let val = e.target.value
+                    if (gateway === 'payflow') {
+                      const parsed = parseCardsString(val)
+                      if (parsed.length > 1) {
+                        showToast("Payflow V2 only supports single card checking!", "err")
+                        val = parsed[0].formatted
+                      }
+                    }
+                    setCardInput(val)
                     if (uploadedFileName) {
                       setUploadedFileName('')
                       setUploadedFileContent('')
@@ -2011,21 +2101,43 @@ export default function App() {
                   className="w-full h-36 bg-slate-955/20 border border-slate-900/60 rounded-xl p-3.5 font-mono text-[11px] text-slate-200 outline-none focus:border-white/30 resize-none transition-all placeholder:text-slate-600 disabled:opacity-50"
                 />
 
+                {gateway === 'payflow' && !hasProxy && (
+                  <div className="text-[9.5px] text-red-400 font-tech font-semibold bg-red-950/20 border border-red-500/20 px-3 py-2 rounded-xl flex items-center gap-1.5 animate-pulse-glow">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-400" /> Proxy configuration required to check with Payflow V2!
+                  </div>
+                )}
+
                 <div className="flex gap-2">
                   {!isRunning ? (
                     <>
                       <button 
-                        onClick={() => runChecker()}
-                        className="bg-white hover:bg-slate-250 text-slate-950 font-tech text-xs font-bold py-3 rounded-xl flex-[2] flex items-center justify-center gap-1.5 transition-all duration-300 hover:shadow-[0_0_20px_rgba(255,255,255,0.12)] active:scale-[0.98]"
+                        onClick={() => {
+                          if (gateway === 'payflow' && !hasProxy) {
+                            showToast("Proxy configuration required to check with Payflow V2!", "err")
+                            return
+                          }
+                          runChecker()
+                        }}
+                        disabled={gateway === 'payflow' && !hasProxy}
+                        className={`font-tech text-xs font-bold py-3 rounded-xl flex-[2] flex items-center justify-center gap-1.5 transition-all duration-300 active:scale-[0.98] ${
+                          gateway === 'payflow' && !hasProxy
+                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-900 opacity-40'
+                            : 'bg-white hover:bg-slate-250 text-slate-950 hover:shadow-[0_0_20px_rgba(255,255,255,0.12)]'
+                        }`}
                       >
                         <Play className="w-3.5 h-3.5 fill-current" /> RUN CHECKER
                       </button>
                       <button 
                         onClick={() => handleCleanInputCards()}
-                        className="bg-slate-900 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-slate-300 font-tech text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-200"
-                        title="Quét và lọc thẻ sai hạn, hết hạn, sai Luhn, thiếu trường"
+                        disabled={gateway === 'payflow'}
+                        className={`font-tech text-xs font-bold py-3 rounded-xl flex-1 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] duration-200 ${
+                          gateway === 'payflow'
+                            ? 'bg-slate-950 text-slate-700 border border-slate-900 cursor-not-allowed opacity-30'
+                            : 'bg-slate-900 border border-slate-800 hover:bg-slate-800 hover:border-slate-700 text-slate-300'
+                        }`}
+                        title="Clean and filter invalid, expired, or failed Luhn cards"
                       >
-                        <Scissors className="w-3.5 h-3.5 text-cyan-400" /> DỌN THẺ
+                        <Scissors className={`w-3.5 h-3.5 ${gateway === 'payflow' ? 'text-slate-700' : 'text-cyan-400'}`} /> CLEAN
                       </button>
                     </>
                   ) : (
@@ -2040,30 +2152,38 @@ export default function App() {
               </div>
 
               {/* Bulk Source */}
-              <div className="glass-panel glass-panel-glow-cyan rounded-2xl p-5 hover:border-slate-800/80 transition-all duration-300 flex flex-col gap-4">
+              <div className={`glass-panel glass-panel-glow-cyan rounded-2xl p-5 hover:border-slate-800/80 transition-all duration-300 flex flex-col gap-4 ${gateway === 'payflow' ? 'opacity-40 pointer-events-none' : ''}`}>
                 <div className="font-tech text-[10.5px] font-bold text-slate-400 tracking-wider">
                   <span>[02] BULK SOURCE</span>
                 </div>
                 
                 <div 
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  onClick={() => document.getElementById('file-input')?.click()}
-                  className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-300 bg-slate-955/40 ${
-                    dragOver ? 'border-cyan-400 bg-cyan-500/10 shadow-[0_0_15px_rgba(6,182,212,0.1)] scale-[1.01]' : 'border-slate-900 hover:border-cyan-500/30 hover:bg-slate-900/20'
+                  onDragOver={gateway !== 'payflow' ? handleDragOver : undefined}
+                  onDragLeave={gateway !== 'payflow' ? handleDragLeave : undefined}
+                  onDrop={gateway !== 'payflow' ? handleDrop : undefined}
+                  onClick={gateway !== 'payflow' ? () => document.getElementById('file-input')?.click() : undefined}
+                  className={`border-2 border-dashed rounded-xl p-6 text-center transition-all duration-300 bg-slate-955/40 ${
+                    gateway === 'payflow'
+                      ? 'border-red-950/20 bg-red-955/5 cursor-not-allowed'
+                      : dragOver ? 'border-cyan-400 bg-cyan-500/10 shadow-[0_0_15px_rgba(6,182,212,0.1)] scale-[1.01] cursor-pointer' : 'border-slate-900 hover:border-cyan-500/30 hover:bg-slate-900/20 cursor-pointer'
                   }`}
                 >
-                  <UploadCloud className="w-6 h-6 text-slate-505 mx-auto mb-2" />
-                  <div className="font-tech text-[9.5px] font-bold text-slate-300">DRAG & DROP CARDS FILE</div>
-                  <span className="font-tech text-[8px] text-slate-500 mt-1 block">Plain text .txt / .csv list</span>
-                  <input 
-                    type="file" 
-                    id="file-input" 
-                    accept=".txt,.csv" 
-                    className="hidden" 
-                    onChange={handleFileChange}
-                  />
+                  <UploadCloud className={`w-6 h-6 mx-auto mb-2 ${gateway === 'payflow' ? 'text-red-500/40' : 'text-slate-505'}`} />
+                  <div className="font-tech text-[9.5px] font-bold text-slate-300">
+                    {gateway === 'payflow' ? 'BULK UPLOAD DISABLED' : 'DRAG & DROP CARDS FILE'}
+                  </div>
+                  <span className="font-tech text-[8px] text-slate-500 mt-1 block">
+                    {gateway === 'payflow' ? 'Payflow V2 only supports single card' : 'Plain text .txt / .csv list'}
+                  </span>
+                  {gateway !== 'payflow' && (
+                    <input 
+                      type="file" 
+                      id="file-input" 
+                      accept=".txt,.csv" 
+                      className="hidden" 
+                      onChange={handleFileChange}
+                    />
+                  )}
                 </div>
                 
                 {uploadedFileName && (
@@ -2083,7 +2203,7 @@ export default function App() {
               </div>
 
               {/* Smart Card Splitter */}
-              <div className="double-bezel-card glow-cyan flex flex-col overflow-hidden font-tech">
+              <div className={`double-bezel-card glow-cyan flex flex-col overflow-hidden font-tech transition-opacity duration-300 ${gateway === 'payflow' ? 'opacity-30 pointer-events-none' : ''}`}>
                 <div className="double-bezel-inner flex flex-col gap-4">
                   <div className="text-[10.5px] font-bold text-slate-400 tracking-wider flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" /> [03] SMART CARD SPLITTER
@@ -2212,7 +2332,7 @@ export default function App() {
                   <span>[04] DATA POOLS</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Sites pool */}
                   <div className="flex flex-col gap-2 font-tech">
                     <span className="text-[9px] uppercase tracking-wide text-slate-505 font-bold">SITES</span>
@@ -2568,7 +2688,7 @@ export default function App() {
                             type="button"
                             onClick={() => copyToClipboard(r.card)}
                             className="flex flex-col shrink-0 min-w-[130px] cursor-pointer hover:text-cyan-400 text-left active:scale-95 duration-100 transition-[color,transform] select-none outline-none focus-visible:ring-1 focus-visible:ring-cyan-500/30 rounded-lg"
-                            title="Click to copy card / Bấm để copy thẻ"
+                            title="Click to copy card"
                             aria-label={`Copy card ${r.card}`}
                           >
                             <span className="text-slate-200 font-semibold text-[10.5px] md:text-[11.5px] tracking-wide hover:underline">{r.card}</span>
@@ -2728,7 +2848,7 @@ export default function App() {
               setCustomAvatarIndex(index)
               localStorage.setItem(`mlsn_avatar_${user}`, index.toString())
               setIsCustomizerOpen(false)
-              showToast("Avatar customized successfully! / Đã chọn hình đại diện mới.")
+              showToast("Avatar customized successfully!")
             }}
           />
         )}

