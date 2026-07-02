@@ -194,6 +194,11 @@ type BinInfo struct {
 }
 
 var (
+	payflowLockedUntil   time.Time
+	payflowLockMu        sync.RWMutex
+	payflowUserCooldown  = make(map[int64]time.Time)
+	payflowCooldownMu    sync.Mutex
+
 	binCache   = make(map[string]*BinInfo)
 	binCacheMu sync.RWMutex
 )
@@ -1348,21 +1353,44 @@ func doCheckPayflow(client *http.Client, card Card, proxyRaw string) CheckResult
 		return ""
 	}
 
-	apiResponse := getString(raw, "Response", "response", "message", "Message")
-	cvv2 := getString(raw, "CVV2", "cvv2")
+	apiResponse := getString(raw, "RESPMSG", "respmsg", "Response", "response", "message", "Message")
+	cvv2 := getString(raw, "CVV2MATCH", "cvv2match", "CVV2", "cvv2")
 	procCvv2 := getString(raw, "PROCCVV2", "proccvv2")
-	orderID := getString(raw, "ORDERID", "orderid")
+	orderID := getString(raw, "orderid", "ORDERID", "invoiceNumber")
 	checkTime := getString(raw, "Time", "time", "elapsed")
 	gatewayVal := getString(raw, "Gateway", "gateway", "Gate")
 	if gatewayVal == "" {
 		gatewayVal = "Payflow V2"
 	}
 
-	status, emoji := classifyResponse(apiResponse)
+	if strings.Contains(apiResponse, "10069") {
+		payflowLockMu.Lock()
+		payflowLockedUntil = time.Now().Add(30 * time.Minute)
+		payflowLockMu.Unlock()
+	}
 
-	if status == "UNKNOWN" && apiResponse != "" {
-		apiStatus := getString(raw, "Status", "status")
-		if apiStatus == "false" || apiStatus == "False" {
+	var status string
+	var emoji string
+
+	if procCvv2 == "M" && cvv2 == "Y" {
+		status = "LIVE"
+		emoji = "✅"
+	} else if strings.Contains(strings.ToLower(apiResponse), "approved") {
+		status = "CHARGED"
+		emoji = "🔥"
+	} else {
+		isDead := false
+		lowerResp := strings.ToLower(apiResponse)
+		for _, k := range deadKeywords {
+			if strings.Contains(lowerResp, k) {
+				isDead = true
+				break
+			}
+		}
+		if isDead {
+			status = "DEAD"
+			emoji = "❌"
+		} else {
 			status = "ERROR"
 			emoji = "⚠️"
 		}
@@ -2168,6 +2196,36 @@ func apiCheckHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if reqData.Gateway == "payflow" {
+		payflowLockMu.RLock()
+		locked := time.Now().Before(payflowLockedUntil)
+		remaining := time.Until(payflowLockedUntil)
+		payflowLockMu.RUnlock()
+		if locked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": fmt.Sprintf("Payflow V2 is temporarily locked for another %d minutes due to account issues (Error 10069).", int(remaining.Minutes())+1),
+			})
+			return
+		}
+
+		if !isAdmin {
+			payflowCooldownMu.Lock()
+			lastCheck, exists := payflowUserCooldown[userID]
+			if exists && time.Since(lastCheck) < 10*time.Second {
+				rem := 10*time.Second - time.Since(lastCheck)
+				payflowCooldownMu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error": fmt.Sprintf("Rate limit: Please wait %.1f seconds before checking again.", rem.Seconds()),
+				})
+				return
+			}
+			payflowUserCooldown[userID] = time.Now()
+			payflowCooldownMu.Unlock()
+		}
+
 		if len(cards) > 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
@@ -3346,6 +3404,36 @@ func apiCheckStartHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if reqData.Gateway == "payflow" {
+		payflowLockMu.RLock()
+		locked := time.Now().Before(payflowLockedUntil)
+		remaining := time.Until(payflowLockedUntil)
+		payflowLockMu.RUnlock()
+		if locked {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": fmt.Sprintf("Payflow V2 is temporarily locked for another %d minutes due to account issues (Error 10069).", int(remaining.Minutes())+1),
+			})
+			return
+		}
+
+		if !isAdmin {
+			payflowCooldownMu.Lock()
+			lastCheck, exists := payflowUserCooldown[userID]
+			if exists && time.Since(lastCheck) < 10*time.Second {
+				rem := 10*time.Second - time.Since(lastCheck)
+				payflowCooldownMu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"error": fmt.Sprintf("Rate limit: Please wait %.1f seconds before checking again.", rem.Seconds()),
+				})
+				return
+			}
+			payflowUserCooldown[userID] = time.Now()
+			payflowCooldownMu.Unlock()
+		}
+
 		if len(cards) > 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)

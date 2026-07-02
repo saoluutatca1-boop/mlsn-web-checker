@@ -496,6 +496,7 @@ export default function App() {
   const [userProxies, setUserProxies] = useState<string[]>([])
   const [gateway, setGateway] = useState<'shopify' | 'payflow'>('shopify')
   const [isGatewayDropdownOpen, setIsGatewayDropdownOpen] = useState(false)
+  const [payflowCooldown, setPayflowCooldown] = useState(0)
   
   // Checking State
   const [isRunning, setIsRunning] = useState(false)
@@ -548,6 +549,14 @@ export default function App() {
     document.addEventListener('click', handleOutsideClick)
     return () => document.removeEventListener('click', handleOutsideClick)
   }, [])
+
+  useEffect(() => {
+    if (payflowCooldown <= 0) return
+    const timer = setInterval(() => {
+      setPayflowCooldown(c => Math.max(0, c - 1))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [payflowCooldown])
 
   useEffect(() => {
     if (!isRunning) {
@@ -1356,6 +1365,9 @@ export default function App() {
       if (data.success && data.task_id) {
         pollTask(data.task_id)
         showToast('Checking task started successfully')
+        if (gateway === 'payflow' && !isAdmin) {
+          setPayflowCooldown(10)
+        }
       } else {
         throw new Error(data.error || 'Failed to start checking task')
       }
@@ -2118,14 +2130,20 @@ export default function App() {
                           }
                           runChecker()
                         }}
-                        disabled={gateway === 'payflow' && !hasProxy}
+                        disabled={(gateway === 'payflow' && !hasProxy) || (gateway === 'payflow' && payflowCooldown > 0)}
                         className={`font-tech text-xs font-bold py-3 rounded-xl flex-[2] flex items-center justify-center gap-1.5 transition-all duration-300 active:scale-[0.98] ${
-                          gateway === 'payflow' && !hasProxy
+                          (gateway === 'payflow' && !hasProxy) || (gateway === 'payflow' && payflowCooldown > 0)
                             ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-900 opacity-40'
                             : 'bg-white hover:bg-slate-250 text-slate-950 hover:shadow-[0_0_20px_rgba(255,255,255,0.12)]'
                         }`}
                       >
-                        <Play className="w-3.5 h-3.5 fill-current" /> RUN CHECKER
+                        {gateway === 'payflow' && payflowCooldown > 0 ? (
+                          `WAIT (${payflowCooldown}s)`
+                        ) : (
+                          <>
+                            <Play className="w-3.5 h-3.5 fill-current" /> RUN CHECKER
+                          </>
+                        )}
                       </button>
                       <button 
                         onClick={() => handleCleanInputCards()}
