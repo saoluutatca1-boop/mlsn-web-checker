@@ -1396,20 +1396,7 @@ func doCheckPayflow(client *http.Client, card Card, proxyRaw string) CheckResult
 		}
 	}
 
-	var msgParts []string
-	if apiResponse != "" {
-		msgParts = append(msgParts, apiResponse)
-	}
-	if cvv2 != "" {
-		msgParts = append(msgParts, "CVV2: "+cvv2)
-	}
-	if procCvv2 != "" {
-		msgParts = append(msgParts, "PROCCVV2: "+procCvv2)
-	}
-	if orderID != "" {
-		msgParts = append(msgParts, "ORDERID: "+orderID)
-	}
-	finalMsg := strings.Join(msgParts, " | ")
+	finalMsg := fmt.Sprintf("%s | CVV2MATCH: %s | PROCCVV2: %s | ORDERID: %s", apiResponse, cvv2, procCvv2, orderID)
 
 	return CheckResult{
 		Status:    status,

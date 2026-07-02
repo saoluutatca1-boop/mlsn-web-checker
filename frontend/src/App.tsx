@@ -2716,7 +2716,38 @@ export default function App() {
                               </span>
                             )}
                           </button>
-                          <span className="text-slate-400 text-[10.5px] overflow-hidden text-ellipsis flex-1 min-w-[150px] md:min-w-0">&gt; {r.msg}</span>
+                          {r.gateway?.toLowerCase().includes('payflow') || r.site?.toLowerCase().includes('payflow') ? (() => {
+                            const parts = r.msg.split(' | ')
+                            const respMsg = parts[0] || ''
+                            const cvv2Match = parts[1] ? parts[1].replace('CVV2MATCH: ', '') : ''
+                            const procCvv2 = parts[2] ? parts[2].replace('PROCCVV2: ', '') : ''
+                            const orderId = parts[3] ? parts[3].replace('ORDERID: ', '') : ''
+                            
+                            return (
+                              <div className="flex items-center gap-4 flex-1 min-w-[200px] select-text">
+                                {/* Bên trái: RESPMSG (Wrap dòng tự nhiên) */}
+                                <span className="text-slate-400 text-[10.5px] whitespace-normal break-words leading-tight flex-1">
+                                  &gt; {respMsg}
+                                </span>
+                                
+                                {/* Bên phải: UI phân số toán học cho CVV stats và Order ID */}
+                                <div className="flex flex-col items-center justify-center text-center font-tech shrink-0 border-l border-slate-900/60 pl-4 min-w-[200px] leading-none py-0.5">
+                                  {/* Tử số: PROCCVV2 và CVV2MATCH */}
+                                  <div className="text-cyan-400 font-bold text-[8.5px] border-b border-slate-800 pb-1.5 mb-1 w-full flex items-center justify-center gap-1.5">
+                                    <span>PROCCVV2: {procCvv2 || 'N/A'}</span>
+                                    <span className="text-slate-800 font-normal">•</span>
+                                    <span>CVV2MATCH: {cvv2Match || 'N/A'}</span>
+                                  </div>
+                                  {/* Mẫu số: ORDERID */}
+                                  <div className="text-slate-500 font-semibold text-[8px] tracking-wide w-full">
+                                    ID: {orderId || 'N/A'}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })() : (
+                            <span className="text-slate-400 text-[10.5px] overflow-hidden text-ellipsis flex-1 min-w-[150px] md:min-w-0">&gt; {r.msg}</span>
+                          )}
                           <span className={`shrink-0 text-[10.5px] md:text-[11.5px] ${colorClass}`}>{r.price}</span>
                           <span className="text-slate-500 text-[9.5px] shrink-0 font-semibold">{r.gateway}</span>
                           <span className="text-cyan-500/70 text-[9.5px] shrink-0 font-semibold">{r.site}</span>
